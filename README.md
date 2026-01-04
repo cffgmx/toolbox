@@ -94,7 +94,7 @@ Para incorporar una nueva herramienta (por ejemplo, un script en Python para lim
 
 ---
 
-## 🗑️ Desinstalación
+## Desinstalación
 
 Para eliminar completamente la *toolbox* y revertir los cambios realizados en el entorno:
 
