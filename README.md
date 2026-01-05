@@ -2,7 +2,9 @@
 
 Este repositorio funciona como una **extensión del sistema operativo**, proporcionando un conjunto de herramientas personalizadas que se integran de forma nativa en la terminal. Su propósito es **abstraer tareas complejas o repetitivas** en comandos simples, reproducibles y seguros, con el objetivo de preservar la **estabilidad y usabilidad a largo plazo** de la estación de trabajo.  
 
-Está diseñado y probado específicamente para **Ubuntu**, siguiendo prácticas conservadoras y no intrusivas.
+Está diseñado y probado específicamente para **Ubuntu 24.04 LTS**, siguiendo prácticas conservadoras y no intrusivas. 
+
+> **Nota de compatibilidad de hardware:** Ciertas utilidades de diagnóstico (como el comando `salud`) están configuradas y optimizadas estrictamente para la arquitectura de la **ThinkPad T14 Gen 1 (AMD Ryzen 5 PRO 4650U)**.
 
 ---
 
@@ -30,8 +32,7 @@ En lugar de manejar scripts aislados con extensiones `.sh` o ubicaciones arbitra
 | Comando | Categoría | Descripción técnica |
 | :--- | :--- | :--- |
 | **`mantenimiento`** | SysAdmin | **Rutina mensual de saneamiento del sistema.**<br>• Actualización segura del sistema (`apt update / upgrade`).<br>• Eliminación de dependencias huérfanas y configuraciones residuales (`rc`).<br>• Rotación y limpieza de logs (`journalctl`, máx. 2 semanas o 100 MB).<br>• Optimización del almacenamiento Snap (`retention=2`).<br>• Mantenimiento físico del SSD mediante TRIM (`fstrim`). |
-
-*(Los futuros scripts —Python, respaldos, gestión de bases de datos u otras utilidades— se documentarán aquí.)*
+| **`salud`** | Hardware | **Diagnóstico técnico y análisis de eficiencia térmica.**<br>• Monitoreo de carga relativa $L_r = \frac{L_1}{12}$ basada en los 12 hilos del Ryzen 5 PRO 4650U.<br>• Reporte contextual mediante la correlación Carga vs. Temperatura para detectar ineficiencias en la disipación.<br>• Evaluación de integridad física del almacenamiento (desgaste de celdas SSD) y capacidad lógica de la partición raíz (`/`).<br>• Análisis de degradación química de la batería (relación Salud vs. Ciclos). |
 
 ---
 
