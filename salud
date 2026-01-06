@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-# Script: salud (v2.3)
+# Script: salud (v2.4)
 # Configuración: ThinkPad T14 Gen 1 (AMD Ryzen 5 PRO 4650U)
-# Descripción: Diagnóstico de hardware con análisis de eficiencia térmica.
+# Descripción: Diagnóstico de hardware con análisis de eficiencia térmica real.
 # ==============================================================================
 
 # Colores (Sobriedad técnica)
@@ -16,59 +16,71 @@ l5=$(echo $load_data | awk '{print $2}')
 l15=$(echo $load_data | awk '{print $3}')
 load_raw="$l1 $l5 $l15"
 
-# Saturación basada en 12 hilos (Ryzen 5 PRO 4650U)
+# Saturación basada en 12 hilos (N=12)
 sat_rel=$(echo "scale=2; ($l1 / 12) * 100" | bc)
 
-# Sensores y métricas
-t_cpu=$(sensors 2>/dev/null | grep "edge" | head -n1 | awk '{print $2}' | tr -d '+°C')
+# Sensores y métricas (Corrección de direccionamiento a Tctl)
+t_cpu=$(sensors k10temp-pci-00c3 2>/dev/null | awk '/Tctl/ {print $2}' | sed 's/[^0-9.]//g')
+
+# Memoria RAM
 r_data=$(free -m | awk '/Mem:/ {print $2,$3}')
 t_m=$(echo $r_data | awk '{print $1}'); u_m=$(echo $r_data | awk '{print $2}')
 p_ram=$(echo "scale=2; $u_m / $t_m * 100" | bc)
+
+# Almacenamiento y Salud SSD
 root_p=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
 ssd_w=$(sudo smartctl -A /dev/nvme0n1 2>/dev/null | grep "Percentage Used" | awk '{print $3}' | tr -d '%' || echo "N/A")
+
+# Energía y Batería
 bat="/sys/class/power_supply/BAT0"
-h_p=$(echo "scale=2; ($(cat $bat/energy_full) / $(cat $bat/energy_full_design)) * 100" | bc)
-cic=$(cat $bat/cycle_count)
+if [ -d "$bat" ]; then
+    h_p=$(echo "scale=2; ($(cat $bat/energy_full) / $(cat $bat/energy_full_design)) * 100" | bc)
+    cic=$(cat $bat/cycle_count)
+else
+    h_p="N/A"; cic="N/A"
+fi
 
 # 2. INTERFAZ DE SALIDA
 clear
-echo -e "${BLUE}=== CONFIGURACIÓN: ThinkPad T14 Gen 1 (Ryzen) ===${NC}"
+echo -e "${BLUE}=== SISTEMA: ThinkPad T14 Gen 1 (Ryzen 5 PRO) ===${NC}"
 echo -e "Reporte generado: $(date +'%Y-%m-%d %H:%M:%S')\n"
 
 echo -e "Demanda de procesos (1/5/15 min): $load_raw"
-echo -e "Uso real del procesador:          ${sat_rel}%"
-echo -e "Temperatura del CPU:              ${t_cpu}°C"
-echo -e "Memoria RAM en uso:               ${u_m}MB / ${t_m}MB (${p_ram}%)"
-echo -e "Espacio en Disco:                 ${root_p}% ocupado"
-echo -e "Desgaste del SSD:                 ${ssd_w}%"
-echo -e "Salud de la Batería:              ${h_p}% | Ciclos: $cic"
+echo -e "Saturación relativa (12 hilos):  ${sat_rel}%"
+echo -e "Temperatura Real (Tctl):          ${t_cpu}°C"
+echo -e "Memoria RAM en uso:               ${u_m}MB / ${t_m}MB (${p_ram}%)"
+echo -e "Espacio en Disco (root):          ${root_p}% ocupado"
+echo -e "Desgaste del SSD (Smart):         ${ssd_w}%"
+echo -e "Salud de la Batería:              ${h_p}% | Ciclos: $cic"
 echo -e "----------------------------------------------------------------"
 
-# 3. REPORTE ANALÍTICO
-echo -e "${YELLOW}REPORTE Y CRITERIOS DE SALUD${NC}\n"
+# 3. REPORTE ANALÍTICO DE SALUD
+echo -e "${YELLOW}ANÁLISIS DE INTEGRIDAD${NC}\n"
 
-# Análisis de Procesador (Lógica de Eficiencia Térmica v2.3)
-echo -e "• ${BLUE}PROCESADOR (Análisis Térmico):${NC}"
-echo -e "  Carga actual: ${l1} (${sat_rel}% de capacidad)."
+# Análisis Térmico-Computacional
+echo -e "• ${BLUE}EFICIENCIA TÉRMICA:${NC}"
+echo -e "  Carga actual por núcleo: $(echo "scale=2; $l1 / 12" | bc)"
 
 if (( $(echo "$t_cpu >= 95" | bc -l) )); then
-    echo -e "  - ${RED}ALERTA CRÍTICA${NC}: Temperatura extrema. Riesgo de estrangulamiento térmico."
+    echo -e "  - ${RED}ALERTA CRÍTICA${NC}: Temperatura extrema ($t_cpu°C). Riesgo de daño o shutdown."
 elif (( $(echo "$l1 < 1.0" | bc -l) )) && (( $(echo "$t_cpu > 65" | bc -l) )); then
-    echo -e "  - ${RED}ANOMALÍA${NC}: Temperatura alta para carga en reposo. Revise obstrucción de ventilación."
-elif (( $(echo "$l1 >= 1.0" | bc -l) )) && (( $(echo "$l1 <= 6.0" | bc -l) )) && (( $(echo "$t_cpu > 85" | bc -l) )); then
-    echo -e "  - ${YELLOW}AVISO${NC}: Ineficiencia térmica. Calor excesivo para carga moderada."
+    echo -e "  - ${RED}ANOMALÍA${NC}: Temperatura alta en reposo. Posible obstrucción física o pasta seca."
+elif (( $(echo "$l1 >= 4.0" | bc -l) )) && (( $(echo "$t_cpu > 88" | bc -l) )); then
+    echo -e "  - ${YELLOW}AVISO${NC}: Alta temperatura bajo carga sostenida. Monitorear ventilación."
 else
-    echo -e "  - ${GREEN}ÓPTIMO${NC}: La relación trabajo/calor es coherente con el diseño del equipo."
+    echo -e "  - ${GREEN}ÓPTIMO${NC}: La disipación es congruente con la carga de trabajo actual."
 fi
 
-# Análisis de Memoria y Almacenamiento
-echo -e "• ${BLUE}MEMORIA Y DISCO:${NC}"
-echo -e "  - RAM: El ${p_ram}% es normal. Preocúpese solo si supera el 90% de forma sostenida."
-echo -e "  - Disco: Un llenado > 90% hará que el sistema se bloquee o no pueda arrancar."
-echo -e "  - SSD: El desgaste del ${ssd_w}% mide la vida consumida del componente físico."
+# Análisis de Memoria y SSD
+echo -e "\n• ${BLUE}RECURSOS Y DESGASTE:${NC}"
+if (( $(echo "$p_ram > 90" | bc -l) )); then
+    echo -e "  - ${RED}RAM CRÍTICA${NC}: SWAP inminente. Posible degradación de performance."
+else
+    echo -e "  - RAM estable."
+fi
 
-# Análisis de Energía
-echo -e "• ${BLUE}ENERGÍA:${NC}"
-echo -e "  - Salud del ${h_p}%. Si baja de 75%, el PC podría apagarse repentinamente bajo demanda."
+if [[ "$ssd_w" != "N/A" ]] && [ "$ssd_w" -gt 80 ]; then
+    echo -e "  - ${RED}ADVERTENCIA SSD${NC}: Desgaste físico superior al 80%. Planear reemplazo."
+fi
 
 echo -e "\n${BLUE}================================================================${NC}"
