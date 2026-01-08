@@ -1,0 +1,47 @@
+#!/bin/bash
+# Nombre: sincronizar
+# Tipo: Ejecutable de sistema (Toolbox)
+# Perfil: Espejo estricto (Idempotente)
+
+set -e
+
+# ------------------------------------------------------------------
+# Lockfile: evita ejecuciones simultáneas
+# ------------------------------------------------------------------
+LOCKFILE="$HOME/.cache/sincronizar.lock"
+mkdir -p "$HOME/.cache"
+exec 9>"$LOCKFILE" || exit 1
+
+if ! flock -n 9; then
+    echo "[ERROR] Ya hay una instancia de 'sincronizar' en ejecución."
+    exit 1
+fi
+
+# ------------------------------------------------------------------
+# Configuración de rutas
+# ------------------------------------------------------------------
+LOCAL_DIR="$HOME/Documentos"
+REMOTE_DEST="gdrive:ubuntu"
+
+# ------------------------------------------------------------------
+# Evaluación de argumentos (Modo Simulación)
+# ------------------------------------------------------------------
+DRY_MODE=""
+if [[ "$1" == "--dry" ]]; then
+    DRY_MODE="--dry-run"
+    echo "[AVISO] Ejecutando en modo SIMULACIÓN (sin cambios reales)."
+fi
+
+echo "== Sincronización Local -> Drive [$(date +'%Y-%m-%d %H:%M')] =="
+
+# ------------------------------------------------------------------
+# Ejecución de rclone
+# Espejo estricto: el remoto se iguala exactamente al estado local
+# ------------------------------------------------------------------
+rclone sync "$LOCAL_DIR" "$REMOTE_DEST" \
+    $DRY_MODE \
+    --progress \
+    --drive-use-trash \
+    --verbose
+
+echo "== Operación finalizada. =="
