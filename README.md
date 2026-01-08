@@ -1,119 +1,132 @@
-## Descripción general
+# Toolbox  
+## Extensión Operativa para Ubuntu 24.04 LTS
 
-Este repositorio funciona como una **extensión del sistema operativo**, proporcionando un conjunto de herramientas personalizadas que se integran de forma nativa en la terminal. Su propósito es **abstraer tareas complejas o repetitivas** en comandos simples, reproducibles y seguros, con el objetivo de preservar la **estabilidad y usabilidad a largo plazo** de la estación de trabajo.  
+Este repositorio define una **infraestructura modular de herramientas operativas** integradas de forma nativa en la terminal de **Ubuntu 24.04 LTS**. Su diseño prioriza la **estabilidad del sistema**, la **automatización no intrusiva** y la **observabilidad del estado del hardware**, evitando dependencias externas innecesarias o configuraciones frágiles.
 
-Está diseñado y probado específicamente para **Ubuntu 24.04 LTS**, siguiendo prácticas conservadoras y no intrusivas. 
+La toolbox está concebida como una **extensión funcional del entorno Unix**, no como una colección de scripts aislados.
 
-> **Nota de compatibilidad de hardware:** Ciertas utilidades de diagnóstico (como el comando `salud`) están configuradas y optimizadas estrictamente para la arquitectura de la **ThinkPad T14 Gen 1 (AMD Ryzen 5 PRO 4650U)**.
-
----
-
-## Arquitectura e integración
-
-La filosofía central de esta *toolbox* es su **integración directa en el `$PATH` del usuario**.
-
-En lugar de manejar scripts aislados con extensiones `.sh` o ubicaciones arbitrarias, todos los comandos viven en un único directorio que el sistema reconoce como fuente de ejecutables.
-
-### Implicaciones clave
-
-- **Ejecución nativa:**  
-  Los scripts se invocan directamente por su nombre (por ejemplo, `mantenimiento`) desde cualquier directorio, de la misma forma que comandos estándar como `ls`, `grep` o `apt`.
-
-- **Portabilidad inmediata:**  
-  Al clonar este repositorio en una nueva máquina y añadir el directorio al `PATH`, todo el entorno personal de herramientas queda restaurado de manera instantánea, sin configuraciones adicionales.
-
-- **Estética y coherencia:**  
-  Los comandos no utilizan extensiones visibles, reforzando la sensación de estar trabajando con utilidades propias del sistema.
+**Plataforma objetivo:**  
+Optimizada específicamente para la arquitectura de la **Lenovo ThinkPad T14 Gen 1**, equipada con **AMD Ryzen 5 PRO 4650U**. El comportamiento térmico y los umbrales de carga están calibrados para este hardware concreto.
 
 ---
 
-## Catálogo de comandos
+## 1. Arquitectura e Integración
 
-| Comando | Categoría | Descripción técnica |
-| :--- | :--- | :--- |
-| **`mantenimiento`** | SysAdmin | **Rutina mensual de saneamiento del sistema.**<br>• Actualización segura del sistema (`apt update / upgrade`).<br>• Eliminación de dependencias huérfanas y configuraciones residuales (`rc`).<br>• Rotación y limpieza de logs (`journalctl`, máx. 2 semanas o 100 MB).<br>• Optimización del almacenamiento Snap (`retention=2`).<br>• Mantenimiento físico del SSD mediante TRIM (`fstrim`). |
-| **`salud`** | Hardware | **Diagnóstico técnico y análisis de eficiencia térmica.**<br>• Monitoreo de carga relativa $L_r = \frac{L_1}{12}$ basada en los 12 hilos del Ryzen 5 PRO 4650U.<br>• Reporte contextual mediante la correlación Carga vs. Temperatura para detectar ineficiencias en la disipación.<br>• Evaluación de integridad física del almacenamiento (desgaste de celdas SSD) y capacidad lógica de la partición raíz (`/`).<br>• Análisis de degradación química de la batería (relación Salud vs. Ciclos). |
+La filosofía central de la toolbox es la **disponibilidad global de comandos** sin recurrir a alias frágiles ni a rutas absolutas manuales. La integración se basa exclusivamente en la inclusión del directorio de herramientas dentro de la variable de entorno `$PATH`, respetando el modelo estándar del sistema.
 
----
+### Configuración del entorno
 
-## Instalación y configuración
+Añada el siguiente bloque a su archivo `~/.bashrc`:
 
-### 1. Clonar el repositorio
-
-Se recomienda clonar la *toolbox* directamente en el directorio personal para mantener una estructura simple y predecible.
-
-    cd ~
-    git clone https://github.com/cffga/toolbox.git
-
-### 2. Asignar permisos de ejecución
-
-Para que el sistema trate los archivos como comandos ejecutables:
-
-    chmod +x ~/toolbox/*
-
-### 3. Integración permanente en Bash
-
-Añade el siguiente bloque a tu archivo `~/.bashrc`.  
-Este fragmento verifica la existencia del directorio antes de modificar el `PATH`, evitando errores si el repositorio se elimina en el futuro.
-
-    # --- TOOLBOX PERSONAL ---
+    # TOOLBOX PERSONAL
     if [ -d "$HOME/toolbox" ]; then
         export PATH="$HOME/toolbox:$PATH"
     fi
 
-### 4. Aplicar los cambios
+Este enfoque garantiza que cualquier ejecutable contenido en el directorio `~/toolbox` sea reconocido como un comando nativo por la shell.
 
-Recarga la configuración de la shell:
+### Inicialización
 
-    source ~/.bashrc
-
----
-
-## Flujo de trabajo: cómo añadir nuevos comandos
-
-Para incorporar una nueva herramienta (por ejemplo, un script en Python para limpieza de datos):
-
-1. **Crear el archivo**  
-   Ubícalo dentro de `~/toolbox` **sin extensión** y añade el *shebang* correspondiente.
-
-        nano ~/toolbox/limpiar-data
-        #!/usr/bin/env python3
-
-2. **Hacerlo ejecutable**
-
-        chmod +x ~/toolbox/limpiar-data
-
-3. **Versionar (opcional)**
-
-        cd ~/toolbox
-        git add limpiar-data
-        git commit -m "feat: add data cleaning utility"
-        git push
-
-4. **Uso inmediato**  
-   El comando `limpiar-data` estará disponible desde cualquier terminal, sin reiniciar sesión.
+1. Clonar el repositorio en el directorio personal:
+       git clone https://github.com/cffga/toolbox.git ~/toolbox
+2. Otorgar permisos de ejecución a las herramientas:
+       chmod +x ~/toolbox/*
+3. Refrescar la sesión de la shell:
+       source ~/.bashrc
 
 ---
 
-## Desinstalación
+## 2. Dependencia Crítica: rclone
 
-Para eliminar completamente la *toolbox* y revertir los cambios realizados en el entorno:
+El subsistema de sincronización de datos depende de la utilidad `rclone`. Para preservar la coherencia con el ciclo de vida **LTS** del sistema, se recomienda utilizar exclusivamente la versión incluida en los repositorios oficiales de Ubuntu.
 
-### 1. Eliminar el directorio local
+### Instalación
 
-**Advertencia:** esta acción es irreversible.
+    sudo apt update && sudo apt install rclone -y
 
-    rm -rf ~/toolbox
+### Configuración del Remoto (gdrive)
 
-### 2. Limpiar la configuración de la shell
+El comando `sincronizar` asume la existencia de un remoto configurado **exactamente** con el nombre `gdrive`.
 
-1. Abre el archivo de configuración:
+Procedimiento resumido:
 
-        nano ~/.bashrc
+1. Ejecutar:
+       rclone config
+2. Crear un nuevo remoto (`n`) llamado `gdrive`.
+3. Seleccionar **Google Drive** como tipo de almacenamiento.
+4. En *Scope*, elegir la opción **1 — Acceso total**.
+5. Completar el flujo de autenticación mediante el navegador web.
 
-2. Localiza y elimina el bloque `TOOLBOX PERSONAL`.
-3. Guarda (`Ctrl+O`) y cierra (`Ctrl+X`).
+---
 
-### 3. Refrescar la sesión
+## 3. Catálogo Técnico de Comandos
 
-    source ~/.bashrc
+| Comando        | Categoría | Descripción Técnica |
+|---------------|-----------|---------------------|
+| mantenimiento | SysAdmin  | Actualización controlada del sistema (preservando el kernel), purga de estados rc, rotación de logs (límite 100 MB) y ejecución de fstrim. |
+| salud         | Hardware  | Diagnóstico de carga relativa (Lr) y análisis de correlación térmica basado en 12 hilos lógicos. |
+| sincronizar   | Datos     | Espejo unidireccional estricto hacia la nube con soporte de auditoría previa. |
+
+---
+
+## 4. Manual de Operación: sincronizar
+
+El comando `sincronizar` implementa una **lógica de espejo unidireccional estricto**. La **fuente de verdad** reside exclusivamente en el almacenamiento local; el estado en la nube es derivado y subordinado.
+
+### Lógica de sincronización (R ≡ L)
+
+Sea:
+- L: el conjunto de archivos en el directorio local  
+- R: el conjunto de archivos en el remoto  
+
+La operación garantiza que, tras su ejecución:
+
+    R_post = { x | x ∈ L }
+
+Bajo este modelo:
+
+- **Sobrescritura:**  
+  Si un archivo existe tanto en L como en R pero difiere, el remoto se sobrescribe con la versión local, independientemente de la marca de tiempo del archivo en la nube.
+- **Eliminación:**  
+  Cualquier objeto y ∈ R tal que y ∉ L será movido a la papelera del servidor (`--drive-use-trash`).
+- **Integridad del espejo:**  
+  Archivos añadidos directamente en la nube desde otros dispositivos serán eliminados en la siguiente ejecución para preservar la paridad con el estado local.
+
+### Modos de uso
+
+- Ejecución estándar:
+      sincronizar
+- Modo auditoría (simulación):
+      sincronizar --dry
+  Muestra las operaciones que se ejecutarían sin realizar cambios reales en los datos.
+
+---
+
+## 5. Análisis de Hardware: salud
+
+El comando `salud` realiza un análisis contextual del rendimiento del sistema, definiendo la **carga relativa** Lr mediante:
+
+    Lr = L_avg(1) / N
+
+donde:
+- L_avg(1) es el promedio de carga del último minuto,
+- N = 12 corresponde al número de hilos lógicos del Ryzen 5 PRO 4650U.
+
+### Umbrales de evaluación
+
+- **Óptimo:** Lr < 0.70 con temperaturas congruentes.
+- **Saturación:** Lr ≥ 1.0, indicando carga superior a la capacidad nominal de procesamiento paralelo.
+- **Anomalía térmica:**  
+  Carga baja acompañada de temperatura elevada, indicativa de obstrucción física, acumulación de polvo o degradación del material térmico.
+
+---
+
+## 6. Mantenimiento del Repositorio
+
+Para añadir nuevas herramientas a la toolbox:
+
+1. Crear el archivo ejecutable en `~/toolbox/` sin extensión.
+2. Incluir el shebang correspondiente (`#!/bin/bash` o `#!/usr/bin/env python3`).
+3. Otorgar permisos de ejecución:
+       chmod +x <archivo>
+```
