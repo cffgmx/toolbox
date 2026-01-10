@@ -64,6 +64,16 @@ Responde exactamente así en el asistente interactivo:
 11. Confirma con `y`
 12. Sal con `q`
 
+Para asegurar la estabilidad del sistema y la correcta resolución de rutas, verifique lo siguiente:
+
+1.  **Etiqueta del SSD:** El sistema identifica la unidad por su etiqueta lógica (*label*).
+    * *Acción:* En la aplicación **Discos** de Ubuntu, asegúrese de que el nombre del volumen sea exactamente `Respaldo`.
+2.  **Ruta de Montaje:** El disco debe montarse automáticamente en la ruta estándar: `/media/$USER/Respaldo`.
+3.  **Dependencia:** Se requiere el binario `rsync` para la transferencia incremental.
+    * *Instalación:* `sudo apt install rsync`
+
+---
+
 ---
 
 ## 3. Catálogo Técnico de Comandos
