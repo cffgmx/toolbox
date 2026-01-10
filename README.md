@@ -36,11 +36,11 @@ Este enfoque garantiza que cualquier ejecutable contenido en el directorio `~/to
 
 ## 2. Dependencia Crítica: rclone
 
-El subsistema de sincronización de datos depende de la utilidad `rclone`. Para preservar la coherencia con el ciclo de vida **LTS** del sistema, se recomienda utilizar exclusivamente la versión incluida en los repositorios oficiales de Ubuntu.
+El subsistema de sincronización de datos depende de la utilidad `rclone` y `rsync`. Para preservar la coherencia con el ciclo de vida **LTS** del sistema, se recomienda utilizar exclusivamente las versiones incluidas en los repositorios oficiales de Ubuntu.
 
 ### Instalación
 
-    sudo apt update && sudo apt install rclone -y
+    sudo apt update && sudo apt install rclone rsync -y
 
 ### Configuración del Remoto (gdrive)
 
