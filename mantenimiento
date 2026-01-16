@@ -1,42 +1,61 @@
 #!/bin/bash
-# Nombre del archivo: mantenimiento
-# Tipo: Ejecutable de sistema (Toolbox)
+# ==============================================================================
+# Nombre: mantenimiento_minimalista
+# Filosofía: No-intrusividad y longevidad del sistema base.
+# Compatibilidad: Debian 13 Stable / Ubuntu LTS
+# ==============================================================================
 
 set -e
 
-echo "== Mantenimiento Mensual del Sistema $(date +'%Y-%m-%d') =="
+# Colores para reporte limpio
+INFO='\033[0;34m'
+EXITO='\033[0;32m'
+NC='\033[0m'
 
-# 1. Update
-echo "--> [1/6] Actualizando sistema..."
-sudo apt update && sudo apt upgrade -y 
+echo -e "${INFO}== Iniciando Mantenimiento Conservador ==${NC}"
 
-# 2. Saneamiento
-echo "--> [2/6] Limpiando paquetería..."
-sudo apt --fix-broken install
+# 1. Gestión de Paquetes (Operación segura en Stable)
+# Se limita a actualizar y limpiar cachés de descarga.
+echo "--> [1/5] Sincronizando y actualizando APT..."
+sudo apt update && sudo apt upgrade -y
 sudo apt autoremove --purge -y
 sudo apt clean
-if [ -n "$(dpkg -l | grep "^rc")" ]; then
-    dpkg -l | grep "^rc" | cut -d " " -f 3 | xargs -r sudo dpkg --purge
+
+# 2. Saneamiento de Configuraciones Residuales
+# Solo elimina archivos de paquetes que ya no existen en el sistema.
+echo "--> [2/5] Purgando residuos de paquetes desinstalados (rc)..."
+RC_PACKAGES=$(dpkg -l | awk '/^rc/{print $2}' | tr '\n' ' ')
+if [[ -n "$RC_PACKAGES" ]]; then
+    echo "Limpiando: $RC_PACKAGES"
+    echo "$RC_PACKAGES" | xargs -r sudo dpkg --purge
+else
+    echo "Sistema base limpio."
 fi
 
-# 3. Logs
-echo "--> [3/6] Purgando logs..."
-sudo journalctl --vacuum-time=2weeks --vacuum-size=100M
-sudo rm -rf /var/crash/*
+# 3. Rotación de Logs (Parámetros de seguridad)
+# No interfiere con el diagnóstico, solo evita el crecimiento desmedido.
+echo "--> [3/5] Ajustando tamaño de logs (journald)..."
+sudo journalctl --vacuum-time=2weeks --vacuum-size=100M 2>/dev/null || true
 
-# 4. Snap
-if command -v snap >/dev/null; then
-    echo "--> [4/6] Optimizando Snap..."
+# 4. Gestión de Capas Desacopladas (Snap/Flatpak)
+# Solo se ejecutan si los sistemas están presentes y activos.
+if command -v snap >/dev/null 2>&1; then
+    echo "--> [4a/5] Optimizando Snap (Revisiones antiguas)..."
     sudo snap set system refresh.retain=2
-    sudo rm -f /var/lib/snapd/cache/*
 fi
 
-# 5. SSD
-echo "--> [5/6] TRIM..."
-sudo fstrim -av
+if command -v flatpak >/dev/null 2>&1; then
+    echo "--> [4b/5] Limpiando Flatpak (Runtimes no utilizados)..."
+    flatpak uninstall --unused -y 2>/dev/null || true
+fi
 
-# 6. Cache Usuario
-echo "--> [6/6] Limpiando cachés..."
-rm -rf ~/.cache/thumbnails/*
+# 5. Optimización del Hardware (TRIM)
+# Verificación rigurosa: solo se ejecuta si el hardware reporta soporte.
+echo "--> [5/5] Verificando soporte TRIM para el SSD..."
+if lsblk -D | grep -q "discard"; then
+    sudo fstrim -av 2>/dev/null || true
+else
+    echo "Omitiendo: El hardware o la capa de cifrado no reportan soporte TRIM."
+fi
 
-echo "== Listo. =="
+echo -e "\n${EXITO}== Mantenimiento minimalista completado. ==${NC}"
