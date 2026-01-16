@@ -38,6 +38,28 @@ sudo apt update && sudo apt install git rclone rsync smartmontools lm-sensors -y
     source ~/.bashrc
     ```
 
+Conectar Google Drive
+
+Ejecuta en terminal lo siguiente:
+
+    rclone config
+
+Responde exactamente así en el asistente interactivo:
+
+1. `n` → New remote  
+2. **name:** `gdrive`  
+3. **Storage:** Selecciona Google Drive (número 22, pero verifica) 
+4. **Client ID:** Enter  
+5. **Client Secret:** Enter  
+6. **Scope:** opción `1` (Full access)
+7. **service_account_file:** Enter
+8. **Advanced config:** `n`  
+9. **Auto config:** `y`  
+   (Se abrirá el navegador, inicia sesión y autoriza)
+10. Confirma con `y`
+11. Confirma con `y`
+12. Sal con `q`
+
 ---
 
 ## 2. Catálogo de Comandos
