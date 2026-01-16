@@ -1,6 +1,6 @@
 # Toolbox
 
-Este repositorio define una **infraestructura modular de herramientas operativas** integradas de forma nativa en la terminal de **Ubuntu 24.04 LTS**. Su diseño prioriza la estabilidad del sistema y la automatización no intrusiva, optimizado específicamente para la arquitectura de la **Lenovo ThinkPad T14 Gen 1** (AMD Ryzen™ 5 PRO 4650U), aunque puede funcionar en cualquier computadora.
+Este repositorio define una **infraestructura modular de herramientas operativas** integradas de forma nativa en la terminal de **Ubuntu LTS** o **Debian Stable**. Su diseño prioriza la estabilidad del sistema y la automatización no intrusiva, optimizado específicamente para la arquitectura de la **Lenovo ThinkPad T14 Gen 1** (AMD Ryzen™ 5 PRO 4650U), aunque puede funcionar en cualquier computadora.
 
 ---
 
