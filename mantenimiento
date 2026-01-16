@@ -58,4 +58,4 @@ else
     echo "Omitiendo: El hardware o la capa de cifrado no reportan soporte TRIM."
 fi
 
-echo -e "\n${EXITO}== Mantenimiento minimalista completado. ==${NC}"
+echo -e "\n${EXITO}== Mantenimiento completado. ==${NC}"
