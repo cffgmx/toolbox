@@ -10,7 +10,7 @@ Este repositorio define una **infraestructura modular de herramientas operativas
 Instale las dependencias necesarias para la gestión de red, sincronización y diagnóstico de hardware:
 
 ```bash
-sudo apt update && sudo apt install git rclone rsync smartmontools lm-sensors -y
+sudo apt update && sudo apt install git rclone rsync smartmontools lm-sensors distrobox podman -y
 ```
 
 ### Procedimiento de Implementación
