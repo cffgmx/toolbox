@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# ==============================================================================
+# Script: crear-box (v1.6)
+# Propósito: Desplegar contenedores con HOME aislado en ~/distroboxes/
+# Fuente: Basado en https://github.com/89luca89/distrobox/docs/compatibility.md
+# ==============================================================================
+
+set -euo pipefail
+
+# 1. Catálogo de Imágenes Validadas (Selección de Compatibilidad Oficial)
+# ------------------------------------------------------------------------------
+CATALOGO=(
+    "Ubuntu 24.04 LTS (Noble)|ubuntu:24.04"
+    "Debian 12 (Bookworm) Stable|debian:12"
+    "Fedora 41 (Workstation)|fedora:41"
+    "Arch Linux (Rolling Release)|archlinux:latest"
+    "Alpine Linux (Minimal/Security)|alpine:latest"
+    "Rocky Linux 9 (RHEL Binary Compatible)|rockylinux:9"
+    "Kali Linux (Security/Pentesting)|kalilinux/kali-rolling:latest"
+)
+
+BASE_DIR="$HOME/distroboxes"
+mkdir -p "$BASE_DIR"
+
+# 2. Identificación y Verificación
+# ------------------------------------------------------------------------------
+read -p "Introduce el nombre para el nuevo sistema: " BOX_NAME
+
+if [[ -z "$BOX_NAME" ]]; then
+    echo -e "\e[1;31m[-] Error: El nombre es obligatorio.\e[0m"
+    exit 1
+fi
+
+TARGET_DIR="$BASE_DIR/$BOX_NAME"
+EXISTE_BOX=$(distrobox list --no-color | awk 'NR>1 {print $3}' | grep -Fx "$BOX_NAME" || true)
+
+# 3. Bloqueo y Auditoría de Iconos Huérfanos
+# ------------------------------------------------------------------------------
+if [ -d "$TARGET_DIR" ] || [ -n "$EXISTE_BOX" ]; then
+    echo -e "\n\e[1;31m[!] BLOQUEO: El nombre '$BOX_NAME' ya está registrado o tiene un directorio reservado.\e[0m"
+    echo "Para purgar el sistema, ejecute manualmente:"
+    echo "  1. Borrar el contenedor:      distrobox rm $BOX_NAME"
+    echo "  2. Borrar el directorio home:  rm -rf $TARGET_DIR"
+    
+    # Búsqueda de residuos de integración (iconos .desktop)
+    SHORTCUTS=$(find ~/.local/share/applications -name "*${BOX_NAME}*" 2>/dev/null || true)
+    
+    if [ -n "$SHORTCUTS" ]; then
+        echo -e "  3. Limpiar iconos huérfanos detectados en el menú del anfitrión:"
+        echo "$SHORTCUTS" | sed 's/^/     - /'
+        echo -e "\n     Comando para purgar archivos .desktop:"
+        echo -e "     \e[1mfind ~/.local/share/applications -name \"*${BOX_NAME}*\" -delete\e[0m"
+    fi
+    exit 0
+fi
+
+# 4. Interfaz de Selección
+# ------------------------------------------------------------------------------
+echo -e "\n--- Distribuciones Validadas (Docs de Compatibilidad) ---"
+TOTAL=${#CATALOGO[@]}
+
+for i in "${!CATALOGO[@]}"; do
+    NAME=$(echo "${CATALOGO[$i]}" | cut -d'|' -f1)
+    printf "%3d) %s\n" "$((i+1))" "$NAME"
+done
+
+while true; do
+    read -p "Selecciona una opción [1-$TOTAL]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$TOTAL" ]; then
+        SELECTED_ENTRY="${CATALOGO[$((choice-1))]}"
+        SELECTED_NAME=$(echo "$SELECTED_ENTRY" | cut -d'|' -f1)
+        SELECTED_IMAGE=$(echo "$SELECTED_ENTRY" | cut -d'|' -f2)
+        break
+    else
+        echo -e "\e[1;33m[-] Opción inválida.\e[0m"
+    fi
+done
+
+# 5. Despliegue con Aislamiento de Home
+# ------------------------------------------------------------------------------
+echo -e "\n[+] Preparando entorno: $SELECTED_NAME"
+echo "[+] Imagen: $SELECTED_IMAGE"
+echo "[+] Home:   $TARGET_DIR"
+
+# Delegamos la creación a distrobox para garantizar consistencia en LUKS/LVM
+distrobox create --name "$BOX_NAME" --image "$SELECTED_IMAGE" --home "$TARGET_DIR"
+
+# 6. Finalización
+# ------------------------------------------------------------------------------
+echo -e "\n\e[1;32m[!] Despliegue finalizado.\e[0m"
+echo "----------------------------------------------------------------------"
+echo -e "\e[1mSUGERENCIA DE INICIALIZACIÓN:\e[0m"
+echo "Para sincronizar las carpetas estándar de usuario (Descargas, etc.)"
+echo "con el esquema de Linux, ejecute dentro del contenedor:"
+echo -e "\n     \e[1;44m xdg-user-dirs-update \e[0m"
+echo "----------------------------------------------------------------------"
