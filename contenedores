@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Script: crear-box (v2.2)
+# Script: crear-box (v2.3)
 # Propósito: Gestionar contenedores Distrobox con HOME aislado en ~/Contenedores distrobox/
 # ==============================================================================
 
@@ -30,7 +30,6 @@ mkdir -p "$BASE_DIR"
 # ------------------------------------------------------------------------------
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M')] $*" >> "$LOG_FILE"
-    # Rotación simple: mantener solo las últimas MAX_LOG_LINES líneas
     if [ "$(wc -l < "$LOG_FILE")" -gt "$MAX_LOG_LINES" ]; then
         tail -n "$MAX_LOG_LINES" "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
     fi
@@ -136,7 +135,10 @@ crear_contenedor() {
     fi
 
     # Despliegue
-    echo -e "\n[+] Creando contenedor..."
+    echo -e "\n[+] Iniciando descarga de la imagen '$SELECTED_IMAGE'..."
+    echo "    Esto puede tardar varios minutos dependiendo de tu conexión."
+    echo "    El sistema está trabajando, por favor espera."
+    echo ""
     distrobox create --name "$BOX_NAME" --image "$SELECTED_IMAGE" --home "$TARGET_DIR"
     log "CREADO: $BOX_NAME | imagen: $SELECTED_IMAGE | home: $TARGET_DIR"
 
@@ -149,7 +151,6 @@ crear_contenedor() {
     echo ""
     read -p "¿Crear las carpetas estándar del HOME (Descargas, Documentos, etc.)? [s/N]: " carpetas
     if [[ "$carpetas" =~ ^[sS]$ ]]; then
-        # Verificar que xdg-user-dirs-update existe dentro del contenedor
         if distrobox enter "$BOX_NAME" -- command -v xdg-user-dirs-update &>/dev/null; then
             echo "[+] Creando carpetas estándar..."
             distrobox enter "$BOX_NAME" -- xdg-user-dirs-update
