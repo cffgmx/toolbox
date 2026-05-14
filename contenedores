@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Script: contenedores (v2.15)
+# Script: contenedores (v2.19)
 # Proposito: Gestionar contenedores Distrobox con HOME aislado en ~/Contenedores distrobox/
 # ==============================================================================
 
@@ -28,10 +28,6 @@ mkdir -p "$BASE_DIR"
 # ------------------------------------------------------------------------------
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M')] $*" >> "$LOG_FILE"
-}
-
-separador() {
-    echo "------------------------------------------------------------"
 }
 
 contenedores_gestionados() {
@@ -71,29 +67,30 @@ crear_contenedor() {
     local SELECTED_ENTRY choice NAME confirm carpetas entrar
 
     echo ""
-    separador
-    echo " Nuevo contenedor Distrobox"
-    separador
     echo "  Se creara un contenedor con las siguientes caracteristicas:"
     echo ""
     echo "  - Entorno Linux aislado del sistema anfitrion"
-    echo "  - HOME propio en: $BASE_DIR/<nombre>"
+    echo "  - HOME propio en: $BASE_DIR/<nombre_del_contenedor>"
     echo "  - Acceso a la red del anfitrion"
     echo "  - Acceso al sistema de archivos del anfitrion"
     echo "  - Gestionado exclusivamente por este script"
-    separador
+    echo ""
 
-    printf "Nombre para el nuevo contenedor: "
+    printf "  Nombre para el nuevo contenedor (0 para volver): "
     read -r BOX_NAME
 
+    [ "$BOX_NAME" = "0" ] && return
+
     if [ -z "$BOX_NAME" ]; then
-        echo "[-] El nombre es obligatorio."
+        echo ""
+        echo "  [-] El nombre es obligatorio."
         return
     fi
 
     case "$BOX_NAME" in
         *[!a-zA-Z0-9_-]*)
-            echo "[-] Solo se permiten letras, numeros, guiones y guiones bajos."
+            echo ""
+            echo "  [-] Solo se permiten letras, numeros, guiones y guiones bajos."
             return
             ;;
     esac
@@ -103,82 +100,81 @@ crear_contenedor() {
 
     if [ -d "$TARGET_DIR" ] || [ -n "$EXISTE_BOX" ]; then
         echo ""
-        echo "[!] Ya existe un contenedor o directorio con el nombre '$BOX_NAME'."
-        echo "Usa la opcion 5 del menu para eliminarlo antes de recrearlo."
+        echo "  [!] Ya existe un contenedor o directorio con el nombre '$BOX_NAME'."
+        echo "      Usa la opcion 5 para eliminarlo antes de recrearlo."
         return
     fi
 
     echo ""
-    separador
-    echo " Distribuciones disponibles"
-    separador
+    echo "  Selecciona la distribucion que quieres usar:"
+    echo ""
     TOTAL=${#CATALOGO[@]}
     for i in "${!CATALOGO[@]}"; do
         NAME=$(echo "${CATALOGO[$i]}" | cut -d'|' -f1)
         printf "  %d) %s\n" "$((i+1))" "$NAME"
     done
-    separador
+    echo "  0) Volver al menu"
+    echo ""
 
     while true; do
-        printf "Selecciona una opcion [1-%d]: " "$TOTAL"
+        printf "  Opcion [0-%d]: " "$TOTAL"
         read -r choice
-        if echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "$TOTAL" ]; then
+        if [ "$choice" = "0" ]; then
+            return
+        elif echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "$TOTAL" ]; then
             SELECTED_ENTRY="${CATALOGO[$((choice-1))]}"
             SELECTED_NAME=$(echo "$SELECTED_ENTRY" | cut -d'|' -f1)
             SELECTED_IMAGE=$(echo "$SELECTED_ENTRY" | cut -d'|' -f2)
             break
         else
-            echo "[-] Opcion invalida."
+            echo "  [-] Opcion invalida."
         fi
     done
 
     echo ""
-    separador
-    echo " Resumen del despliegue"
-    separador
-    echo "  Nombre : $BOX_NAME"
-    echo "  Sistema: $SELECTED_NAME"
-    echo "  Imagen : $SELECTED_IMAGE"
-    echo "  Home   : $TARGET_DIR"
-    separador
+    echo "  Revisa el resumen antes de continuar:"
+    echo ""
+    echo "  Nombre  : $BOX_NAME"
+    echo "  Sistema : $SELECTED_NAME"
+    echo "  Imagen  : $SELECTED_IMAGE"
+    echo "  Home    : $TARGET_DIR"
+    echo ""
 
-    printf "Confirmar creacion? [s/N]: "
+    printf "  Confirmar creacion? [s/N]: "
     read -r confirm
     if [ "$confirm" != "s" ] && [ "$confirm" != "S" ]; then
-        echo "Cancelado."
+        echo "  Cancelado."
         return
     fi
 
     echo ""
-    echo "[+] Iniciando descarga de la imagen '$SELECTED_IMAGE'..."
-    echo "    Esto puede tardar varios minutos dependiendo de tu conexion."
-    echo "    El sistema esta trabajando, por favor espera."
+    echo "  [+] Iniciando descarga de la imagen '$SELECTED_IMAGE'..."
+    echo "      Esto puede tardar varios minutos dependiendo de tu conexion."
+    echo "      El sistema esta trabajando, por favor espera."
     echo ""
 
     if distrobox create --name "$BOX_NAME" --image "$SELECTED_IMAGE" --home "$TARGET_DIR"; then
         log "CREADO: $BOX_NAME | imagen: $SELECTED_IMAGE | home: $TARGET_DIR"
         echo ""
-        separador
-        echo "[+] Contenedor '$BOX_NAME' creado correctamente."
-        separador
+        echo "  [+] Contenedor '$BOX_NAME' creado correctamente."
     else
         echo ""
-        echo "[-] Error al crear el contenedor. Revisa la conexion o el nombre de la imagen."
+        echo "  [-] Error al crear el contenedor. Revisa la conexion o el nombre de la imagen."
         return
     fi
 
     echo ""
-    printf "Crear las carpetas estandar del HOME (Descargas, Documentos, etc.)? [s/N]: "
+    printf "  Crear las carpetas estandar del HOME (Descargas, Documentos, etc.)? [s/N]: "
     read -r carpetas
     if [ "$carpetas" = "s" ] || [ "$carpetas" = "S" ]; then
-        echo "[+] Creando carpetas estandar..."
+        echo "  [+] Creando carpetas estandar..."
         distrobox enter "$BOX_NAME" -- sh -c 'command -v xdg-user-dirs-update && xdg-user-dirs-update' \
-            && echo "[+] Carpetas creadas correctamente." \
-            || echo "[!] xdg-user-dirs-update no esta disponible en esta imagen."
+            && echo "  [+] Carpetas creadas correctamente." \
+            || echo "  [!] xdg-user-dirs-update no esta disponible en esta imagen."
     fi
 
     echo ""
-    printf "Entrar al contenedor ahora? [s/N]: "
+    printf "  Entrar al contenedor ahora? [s/N]: "
     read -r entrar
     if [ "$entrar" = "s" ] || [ "$entrar" = "S" ]; then
         distrobox enter "$BOX_NAME"
@@ -190,11 +186,8 @@ crear_contenedor() {
 # ------------------------------------------------------------------------------
 listar_contenedores() {
     echo ""
-    separador
-    echo " Contenedores Distrobox activos"
-    separador
     printf "  %-20s %s\n" "NOMBRE" "ESTADO"
-    separador
+    echo ""
     distrobox list --no-color | awk -F'|' 'NR>1 {
         nombre = $2
         estado = $3
@@ -203,7 +196,7 @@ listar_contenedores() {
         if (nombre ~ /^[a-zA-Z0-9_-]+$/)
             printf "  %-20s %s\n", nombre, estado
     }'
-    separador
+    echo ""
 }
 
 # ------------------------------------------------------------------------------
@@ -215,7 +208,7 @@ entrar_contenedor() {
     BOXES=$(contenedores_gestionados)
     if [ -z "$BOXES" ]; then
         echo ""
-        echo "[!] No hay contenedores gestionados disponibles."
+        echo "  [!] No hay contenedores disponibles. Crea uno primero con la opcion 1."
         return
     fi
 
@@ -224,21 +217,23 @@ entrar_contenedor() {
     done <<< "$BOXES"
 
     echo ""
-    separador
-    echo " Contenedores disponibles"
-    separador
+    echo "  Selecciona el contenedor al que quieres entrar:"
+    echo ""
     for i in "${!LISTA[@]}"; do
         printf "  %d) %s\n" "$((i+1))" "${LISTA[$i]}"
     done
-    separador
+    echo "  0) Volver al menu"
+    echo ""
 
     while true; do
-        printf "Selecciona el contenedor [1-%d]: " "${#LISTA[@]}"
+        printf "  Opcion [0-%d]: " "${#LISTA[@]}"
         read -r choice
-        if echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "${#LISTA[@]}" ]; then
+        if [ "$choice" = "0" ]; then
+            return
+        elif echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "${#LISTA[@]}" ]; then
             break
         else
-            echo "[-] Opcion invalida."
+            echo "  [-] Opcion invalida."
         fi
     done
 
@@ -264,7 +259,7 @@ apagar_contenedor() {
 
     if [ -z "$BOXES" ]; then
         echo ""
-        echo "[!] No hay contenedores encendidos."
+        echo "  [!] No hay contenedores encendidos en este momento."
         return
     fi
 
@@ -273,31 +268,33 @@ apagar_contenedor() {
     done <<< "$BOXES"
 
     echo ""
-    separador
-    echo " Contenedores encendidos"
-    separador
+    echo "  Selecciona el contenedor que quieres apagar:"
+    echo ""
     for i in "${!LISTA[@]}"; do
         printf "  %d) %s\n" "$((i+1))" "${LISTA[$i]}"
     done
-    separador
+    echo "  0) Volver al menu"
+    echo ""
 
     while true; do
-        printf "Selecciona el contenedor a apagar [1-%d]: " "${#LISTA[@]}"
+        printf "  Opcion [0-%d]: " "${#LISTA[@]}"
         read -r choice
-        if echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "${#LISTA[@]}" ]; then
+        if [ "$choice" = "0" ]; then
+            return
+        elif echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "${#LISTA[@]}" ]; then
             break
         else
-            echo "[-] Opcion invalida."
+            echo "  [-] Opcion invalida."
         fi
     done
 
     BOX_NAME="${LISTA[$((choice-1))]}"
     echo ""
-    echo "[+] Apagando '$BOX_NAME'..."
-    distrobox stop "$BOX_NAME"
+    echo "  [+] Apagando '$BOX_NAME'..."
+    distrobox stop --yes "$BOX_NAME"
     log "APAGADO: $BOX_NAME"
-    echo "[+] '$BOX_NAME' apagado correctamente."
-    separador
+    echo "  [+] '$BOX_NAME' apagado correctamente."
+    echo ""
 }
 
 # ------------------------------------------------------------------------------
@@ -309,7 +306,7 @@ eliminar_contenedor() {
     BOXES=$(contenedores_gestionados)
     if [ -z "$BOXES" ]; then
         echo ""
-        echo "[!] No hay contenedores gestionados para eliminar."
+        echo "  [!] No hay contenedores para eliminar."
         return
     fi
 
@@ -318,21 +315,23 @@ eliminar_contenedor() {
     done <<< "$BOXES"
 
     echo ""
-    separador
-    echo " Contenedores disponibles para eliminar"
-    separador
+    echo "  Selecciona el contenedor que quieres eliminar:"
+    echo ""
     for i in "${!LISTA[@]}"; do
         printf "  %d) %s\n" "$((i+1))" "${LISTA[$i]}"
     done
-    separador
+    echo "  0) Volver al menu"
+    echo ""
 
     while true; do
-        printf "Selecciona el contenedor a eliminar [1-%d]: " "${#LISTA[@]}"
+        printf "  Opcion [0-%d]: " "${#LISTA[@]}"
         read -r choice
-        if echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "${#LISTA[@]}" ]; then
+        if [ "$choice" = "0" ]; then
+            return
+        elif echo "$choice" | grep -qE '^[0-9]+$' && [ "$choice" -ge 1 ] && [ "$choice" -le "${#LISTA[@]}" ]; then
             break
         else
-            echo "[-] Opcion invalida."
+            echo "  [-] Opcion invalida."
         fi
     done
 
@@ -341,40 +340,41 @@ eliminar_contenedor() {
     SHORTCUTS=$(find ~/.local/share/applications -name "*${BOX_NAME}*" 2>/dev/null)
 
     echo ""
-    separador
-    echo "  ADVERTENCIA: Eliminacion completa e irreversible"
-    separador
+    echo "  ADVERTENCIA: Esta accion es completamente irreversible."
+    echo ""
     echo "  Se eliminaran permanentemente:"
     echo "    - Contenedor Distrobox : $BOX_NAME"
     [ -d "$TARGET_DIR" ] && echo "    - Directorio HOME      : $TARGET_DIR"
     [ -n "$SHORTCUTS" ] && echo "    - Accesos directos (.desktop) en el menu del sistema"
-    separador
+    echo ""
+    echo "  Para confirmar, escribe el nombre exacto del contenedor:"
+    echo ""
 
-    printf "Escribe el nombre del contenedor para confirmar: "
+    printf "  Nombre: "
     read -r confirmacion
     if [ "$confirmacion" != "$BOX_NAME" ]; then
-        echo "Cancelado. El nombre no coincide."
+        echo "  Cancelado. El nombre no coincide."
         return
     fi
 
     echo ""
-    echo "[+] Eliminando contenedor..."
+    echo "  [+] Eliminando contenedor..."
     distrobox rm --force "$BOX_NAME" 2>/dev/null
 
     if [ -d "$TARGET_DIR" ]; then
-        echo "[+] Eliminando directorio HOME..."
+        echo "  [+] Eliminando directorio HOME..."
         rm -rf "$TARGET_DIR"
     fi
 
     if [ -n "$SHORTCUTS" ]; then
-        echo "[+] Eliminando accesos directos huerfanos..."
+        echo "  [+] Eliminando accesos directos huerfanos..."
         find ~/.local/share/applications -name "*${BOX_NAME}*" -delete
     fi
 
     log "ELIMINADO: $BOX_NAME | home: $TARGET_DIR"
     echo ""
-    echo "[+] '$BOX_NAME' eliminado completamente, sin rastro."
-    separador
+    echo "  [+] '$BOX_NAME' eliminado completamente, sin rastro."
+    echo ""
 }
 
 # ------------------------------------------------------------------------------
@@ -384,16 +384,15 @@ menu_principal() {
     local opcion
     while true; do
         echo ""
-        separador
         echo "  Gestion de Contenedores Distrobox"
-        separador
+        echo ""
         echo "  1) Crear nuevo contenedor"
-        echo "  2) Listar contenedores"
+        echo "  2) Listar contenedores existentes"
         echo "  3) Entrar a un contenedor"
         echo "  4) Apagar contenedor"
         echo "  5) Eliminar contenedor"
         echo "  6) Salir"
-        separador
+        echo ""
         printf "  Opcion [1-6]: "
         read -r opcion
 
@@ -403,8 +402,8 @@ menu_principal() {
             3) entrar_contenedor ;;
             4) apagar_contenedor ;;
             5) eliminar_contenedor ;;
-            6) echo "Hasta luego."; exit 0 ;;
-            *) echo "[-] Opcion invalida." ;;
+            6) echo "  Hasta luego."; exit 0 ;;
+            *) echo "  [-] Opcion invalida." ;;
         esac
     done
 }
