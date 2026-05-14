@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Script: contenedores (v2.21)
+# Script: contenedores (v2.22)
 # Proposito: Gestionar contenedores Distrobox con HOME aislado en ~/Contenedores distrobox/
 # ==============================================================================
 
@@ -409,11 +409,9 @@ exportar_aplicacion() {
 eliminar_aplicacion_exportada() {
     local LISTA=() archivo nombre_app contenedor choice
 
-    # Buscar .desktop exportados por distrobox en aplicaciones gestionadas
     while IFS= read -r archivo; do
         [ -n "$archivo" ] && LISTA+=("$archivo")
     done < <(find ~/.local/share/applications -name "*.desktop" 2>/dev/null | while read -r f; do
-        # Los archivos exportados por distrobox contienen la linea TryExec con distrobox
         grep -ql "distrobox" "$f" 2>/dev/null && echo "$f"
     done)
 
@@ -428,9 +426,7 @@ eliminar_aplicacion_exportada() {
     echo ""
     for i in "${!LISTA[@]}"; do
         nombre_app=$(basename "${LISTA[$i]}" .desktop)
-        # Extraer el nombre del contenedor del archivo .desktop
-        contenedor=$(grep "^Exec=" "${LISTA[$i]}" 2>/dev/null | head -1 | grep -oP '(?<=distrobox enter )[^ ]+' || echo "desconocido")
-        printf "  %d) %s (desde %s)\n" "$((i+1))" "$nombre_app" "$contenedor"
+        printf "  %d) %s\n" "$((i+1))" "$nombre_app"
     done
     echo "  0) Volver al menu"
     echo ""
@@ -448,11 +444,11 @@ eliminar_aplicacion_exportada() {
     done
 
     nombre_app=$(basename "${LISTA[$((choice-1))]}" .desktop)
-    contenedor=$(grep "^Exec=" "${LISTA[$((choice-1))]}" 2>/dev/null | head -1 | grep -oP '(?<=distrobox enter )[^ ]+' || echo "")
+    contenedor=$(grep "^Exec=/usr/bin/distrobox enter" "${LISTA[$((choice-1))]}" 2>/dev/null | head -1 | awk '{print $NF}')
 
     echo ""
     echo "  [+] Eliminando '$nombre_app' del menu del sistema..."
-    if [ -n "$contenedor" ]; then
+    if [ -n "$contenedor" ] && [ "$contenedor" != "desconocido" ]; then
         distrobox enter "$contenedor" -- distrobox-export --delete --app "$nombre_app" 2>/dev/null || \
             rm -f "${LISTA[$((choice-1))]}"
     else
