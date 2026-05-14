@@ -36,21 +36,93 @@ if [[ -f "$LOG_FILE" ]]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────
-# 3. FUNCIÓN DE EJECUCIÓN
+# 3. FUNCIONES DE EJECUCIÓN
 # ──────────────────────────────────────────────────────────────────
-run_with_feedback() {
+
+# Muestra un spinner mientras el PID dado sigue activo.
+spinner() {
+    local pid=$1
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        printf '  Sincronizando... %s\r' "${spinstr:$i:1}"
+        i=$(( (i + 1) % ${#spinstr} ))
+        sleep 0.15
+    done
+    printf '%-72s\r' ""
+}
+
+run_rclone() {
+    local tmp exit_code=0
+    tmp=$(mktemp)
+
     if [[ -t 1 ]]; then
-        echo -ne "  [Procesando...]\r"
-        if "$@" >> "$LOG_FILE" 2>&1; then
-            echo -e "  Completado.   "
-            return 0
-        else
-            echo -e "  Falló.        "
-            return 1
-        fi
+        rclone sync "$dir" "gdrive:thinkpad" \
+            --drive-use-trash \
+            --drive-pacer-min-sleep 100ms \
+            --drive-pacer-burst 10 \
+            --stats-one-line \
+            --stats 2s \
+            > "$tmp" 2>&1 &
+        local pid=$!
+        spinner "$pid"
+        wait "$pid" || exit_code=$?
+
+        # Mostrar resumen final si rclone produjo stats
+        local summary
+        summary=$(tr '\r' '\n' < "$tmp" \
+            | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+            | grep -i "Transferred:" \
+            | tail -1)
+        [[ -n "$summary" ]] && echo "  $summary"
+
+        # Escribir log limpio
+        tr '\r' '\n' < "$tmp" \
+            | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+            | grep -v '^$' >> "$LOG_FILE"
+
+        rm -f "$tmp"
     else
-        "$@" >> "$LOG_FILE" 2>&1
+        rclone sync "$dir" "gdrive:thinkpad" \
+            --drive-use-trash \
+            --drive-pacer-min-sleep 100ms \
+            --drive-pacer-burst 10 \
+            --quiet \
+            >> "$LOG_FILE" 2>&1 || exit_code=$?
     fi
+
+    return "$exit_code"
+}
+
+run_rsync() {
+    local tmp exit_code=0
+    tmp=$(mktemp)
+
+    if [[ -t 1 ]]; then
+        rsync -a --delete --info=progress2 --stats "$dir" "$ssd/" \
+            > "$tmp" 2>&1 &
+        local pid=$!
+        spinner "$pid"
+        wait "$pid" || exit_code=$?
+
+        # Mostrar última línea de progreso
+        local summary
+        summary=$(tr '\r' '\n' < "$tmp" \
+            | grep "%" \
+            | tail -1 \
+            | tr -d '\r')
+        [[ -n "$summary" ]] && echo "  $summary"
+
+        tr '\r' '\n' < "$tmp" \
+            | grep -v '^$' >> "$LOG_FILE"
+
+        rm -f "$tmp"
+    else
+        rsync -a --delete --stats "$dir" "$ssd/" \
+            >> "$LOG_FILE" 2>&1 || exit_code=$?
+    fi
+
+    return "$exit_code"
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -108,20 +180,16 @@ if ! rclone listremotes 2>/dev/null | grep -q "^gdrive:"; then
     echo "  Error: el remote 'gdrive:' no está configurado en rclone."
     echo "[$(date +"%F %T")] Error: remote 'gdrive:' no encontrado." >> "$LOG_FILE"
 else
-    for (( i=1; i<=RETRIES; i++ )); do
-        (( i > 1 )) && echo "  Reintentando ($i/$RETRIES)..."
-        if run_with_feedback rclone sync "$dir" "gdrive:ubuntu" \
-                --drive-use-trash \
-                --quiet; then
-            CLOUD_STATUS=0
-            break
-        else
-            (( i < RETRIES )) && sleep $SLEEP_RETRY
-        fi
-    done
+    if run_rclone; then
+        CLOUD_STATUS=0
+    fi
 fi
 
-[[ $CLOUD_STATUS -ne 0 ]] && echo "  Sin éxito."
+if [[ $CLOUD_STATUS -eq 0 ]]; then
+    echo "  Completado."
+else
+    echo "  Sin éxito."
+fi
 
 echo ""
 
@@ -145,7 +213,7 @@ if mountpoint -q "$ssd"; then
         SSD_STATUS=1
         for (( i=1; i<=RETRIES; i++ )); do
             (( i > 1 )) && echo "  Reintentando ($i/$RETRIES)..."
-            if run_with_feedback rsync -a --delete --stats "$dir" "$ssd/"; then
+            if run_rsync; then
                 SSD_STATUS=0
                 break
             else
@@ -154,7 +222,11 @@ if mountpoint -q "$ssd"; then
         done
     fi
 
-    [[ $SSD_STATUS -eq 1 ]] && echo "  Sin éxito."
+    if [[ $SSD_STATUS -eq 0 ]]; then
+        echo "  Completado."
+    elif [[ $SSD_STATUS -eq 1 ]]; then
+        echo "  Sin éxito."
+    fi
 else
     echo "  Omitido: SSD no detectado."
 fi
