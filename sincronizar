@@ -39,7 +39,6 @@ fi
 # 3. FUNCIONES DE EJECUCIÓN
 # ──────────────────────────────────────────────────────────────────
 
-# Muestra un spinner mientras el PID dado sigue activo.
 spinner() {
     local pid=$1
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -59,8 +58,8 @@ run_rclone() {
     if [[ -t 1 ]]; then
         rclone sync "$dir" "gdrive:thinkpad" \
             --drive-use-trash \
-            --drive-pacer-min-sleep 100ms \
-            --drive-pacer-burst 10 \
+            --fast-list \
+            --exclude ".git/**" \
             --stats-one-line \
             --stats 2s \
             > "$tmp" 2>&1 &
@@ -68,7 +67,6 @@ run_rclone() {
         spinner "$pid"
         wait "$pid" || exit_code=$?
 
-        # Mostrar resumen final si rclone produjo stats
         local summary
         summary=$(tr '\r' '\n' < "$tmp" \
             | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
@@ -76,7 +74,6 @@ run_rclone() {
             | tail -1)
         [[ -n "$summary" ]] && echo "  $summary"
 
-        # Escribir log limpio
         tr '\r' '\n' < "$tmp" \
             | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
             | grep -v '^$' >> "$LOG_FILE"
@@ -85,8 +82,8 @@ run_rclone() {
     else
         rclone sync "$dir" "gdrive:thinkpad" \
             --drive-use-trash \
-            --drive-pacer-min-sleep 100ms \
-            --drive-pacer-burst 10 \
+            --fast-list \
+            --exclude ".git/**" \
             --quiet \
             >> "$LOG_FILE" 2>&1 || exit_code=$?
     fi
@@ -99,13 +96,13 @@ run_rsync() {
     tmp=$(mktemp)
 
     if [[ -t 1 ]]; then
-        rsync -a --delete --info=progress2 --stats "$dir" "$ssd/" \
+        rsync -a --delete --exclude ".git/" \
+            --info=progress2 --stats "$dir" "$ssd/" \
             > "$tmp" 2>&1 &
         local pid=$!
         spinner "$pid"
         wait "$pid" || exit_code=$?
 
-        # Mostrar última línea de progreso
         local summary
         summary=$(tr '\r' '\n' < "$tmp" \
             | grep "%" \
@@ -118,7 +115,8 @@ run_rsync() {
 
         rm -f "$tmp"
     else
-        rsync -a --delete --stats "$dir" "$ssd/" \
+        rsync -a --delete --exclude ".git/" \
+            --stats "$dir" "$ssd/" \
             >> "$LOG_FILE" 2>&1 || exit_code=$?
     fi
 
@@ -143,7 +141,7 @@ trap 'echo "[$(date +"%F %T")] Proceso interrumpido abruptamente." >> "$LOG_FILE
 # ──────────────────────────────────────────────────────────────────
 dir=$(xdg-user-dir DOCUMENTS 2>/dev/null || echo "$HOME/Documentos")
 dir="${dir%/}/"
-ssd="/media/$USER/Respaldo"
+ssd="/run/media/$USER/Respaldo"
 
 if [[ ! -d "$dir" ]]; then
     echo "Error: el directorio de origen no existe ($dir)."
@@ -200,7 +198,7 @@ echo "[2] SSD Externo"
 SSD_STATUS=2
 
 if mountpoint -q "$ssd"; then
-    ORIGIN_SIZE=$(timeout 30 du -sk "$dir" 2>/dev/null | awk '{print $1}') || ORIGIN_SIZE=0
+    ORIGIN_SIZE=$(timeout 30 du -sk --exclude=".git" "$dir" 2>/dev/null | awk '{print $1}') || ORIGIN_SIZE=0
     FREE_SPACE=$(df -k "$ssd" | awk 'NR==2 {print $4}')
     SAFE_SIZE=$(( ORIGIN_SIZE + ORIGIN_SIZE * MARGIN / 100 ))
 
