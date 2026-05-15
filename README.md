@@ -1,120 +1,156 @@
 # Toolbox
 
-Este repositorio define una **infraestructura modular de herramientas operativas** integradas de forma nativa en la terminal de **Ubuntu LTS** o **Debian Stable**. Su diseño prioriza la estabilidad del sistema y la automatización no intrusiva, optimizado específicamente para la arquitectura de la **Lenovo ThinkPad T14 Gen 1** (AMD Ryzen™ 5 PRO 4650U), aunque puede funcionar en cualquier computadora.
+Infraestructura modular de herramientas operativas integradas de forma nativa en la terminal de **Ubuntu LTS** o **Debian Stable**. Diseñada con énfasis en la automatización no intrusiva y la estabilidad del sistema; optimizada para la **Lenovo ThinkPad T14 Gen 1 (AMD Ryzen 5 PRO 4650U)**, aunque funciona en cualquier equipo compatible.
 
 ---
 
-## 1. Instalación e Integración
+## 1. Instalación
 
-### Requisitos Técnicos
-Instale las dependencias necesarias para la gestión de red, sincronización y diagnóstico de hardware:
+### Dependencias
 
+Cada comando requiere únicamente sus propias dependencias. Instale solo las que correspondan a los scripts que vaya a usar:
+
+**`sincronizar`** — `rclone` y `rsync`:
 ```bash
-sudo apt update && sudo apt install git rclone rsync smartmontools lm-sensors distrobox podman -y
+sudo apt update && sudo apt install rclone rsync -y
 ```
 
-### Procedimiento de Implementación
+**`contenedores`** — `distrobox` y `podman`:
+```bash
+sudo apt update && sudo apt install distrobox podman -y
+```
 
-1.  **Clonación:** Descargue el repositorio en su directorio personal:
-    ```bash
-    git clone [https://github.com/cffga/toolbox.git](https://github.com/cffga/toolbox.git) ~/toolbox
-    ```
-2.  **Permisos:** Otorgue capacidades de ejecución a todos los scripts:
-    ```bash
-    chmod +x ~/toolbox/*
-    ```
-3.  **Configuración del entorno ($PATH):** Para invocar las herramientas como comandos globales, añada este bloque al final de su archivo `~/.bashrc`:
+> Los comandos `flock`, `xdg-user-dir`, `mountpoint`, `du` y `df` que usa `sincronizar` son utilidades estándar presentes en cualquier instalación de Ubuntu o Debian.
 
-> ```bash
-> # --- TOOLBOX PERSONAL ---
-> if [ -d "$HOME/toolbox" ]; then
->     export PATH="$HOME/toolbox:$PATH"
-> fi
-> # ------------------------
-> ```
+### Procedimiento
 
-4.  **Activación:** Refresque la sesión actual de la shell para reconocer los comandos:
-    ```bash
-    source ~/.bashrc
-    ```
+**1. Clonar el repositorio:**
 
-Conectar Google Drive
+```bash
+git clone https://github.com/cffga/toolbox.git ~/toolbox
+```
 
-Ejecuta en terminal lo siguiente:
+**2. Otorgar permisos de ejecución:**
 
-    rclone config
+```bash
+chmod +x ~/toolbox/*
+```
 
-Responde exactamente así en el asistente interactivo:
+**3. Registrar en el `PATH`.** Añada el siguiente bloque al final de `~/.bashrc`:
 
-1. `n` → New remote  
-2. **name:** `gdrive`  
-3. **Storage:** Selecciona Google Drive (número 22, pero verifica) 
-4. **Client ID:** Enter  
-5. **Client Secret:** Enter  
-6. **Scope:** opción `1` (Full access)
-7. **service_account_file:** Enter
-8. **Advanced config:** `n`  
-9. **Auto config:** `y`  
-   (Se abrirá el navegador, inicia sesión y autoriza)
-10. Confirma con `y`
-11. Confirma con `y`
-12. Sal con `q`
+```bash
+# --- TOOLBOX PERSONAL ---
+if [ -d "$HOME/toolbox" ]; then
+    export PATH="$HOME/toolbox:$PATH"
+fi
+# ------------------------
+```
+
+**4. Activar en la sesión actual:**
+
+```bash
+source ~/.bashrc
+```
+
+A partir de este punto, todos los scripts del directorio `~/toolbox` estarán disponibles como comandos globales.
 
 ---
 
-## 2. Catálogo de Comandos
+### Configurar Google Drive (requisito de `sincronizar`)
 
-### `mantenimiento`
-Ejecuta un saneamiento profundo del sistema en cuatro etapas controladas:
+Ejecute el asistente interactivo de rclone:
 
-* **Actualización:** Sincroniza repositorios y descarga parches de seguridad.
-* **Saneamiento:** Elimina dependencias huérfanas y configuraciones residuales (estados `rc`).
-* **Gestión de Logs:** Limita el tamaño de `journalctl` a **100 MB** o **2 semanas** de antigüedad.
-* **Optimización SSD:** Ejecuta `fstrim` en unidades compatibles para preservar el rendimiento.
+```bash
+rclone config
+```
 
-### `salud` 
-Genera un análisis de integridad basado en métricas del kernel y sensores físicos:
+Siga estos pasos cuando el asistente lo solicite:
 
-| Métrica | Umbral de Alerta | Descripción |
-| :--- | :--- | :--- |
-| **Temperatura (Tctl)** | > 88°C | Evaluación térmica de los 12 hilos lógicos del Ryzen 5. |
-| **Desgaste SSD** | > 80% | Reporte de uso del NVMe mediante datos SMART. |
-| **Batería** | Variable | Comparativa entre capacidad real vs. diseño y ciclos. |
+| Paso | Entrada |
+| :--- | :--- |
+| Tipo de operación | `n` (New remote) |
+| Nombre | `gdrive` |
+| Tipo de almacenamiento | Google Drive (verifique el número en su versión de rclone) |
+| Client ID / Secret | Enter (dejar vacío) |
+| Scope | `1` (Full access) |
+| Service account file | Enter (dejar vacío) |
+| Advanced config | `n` |
+| Auto config | `y` — se abrirá el navegador para autorizar la cuenta |
+| Confirmaciones finales | `y`, luego `y` |
+| Salir | `q` |
+
+---
+
+## 2. Comandos disponibles
 
 ### `sincronizar`
-Implementa un protocolo de respaldo híbrido con seguridad industrial.
 
-* **Exclusividad:** Utiliza un archivo de bloqueo (`flock`) para impedir ejecuciones concurrentes.
-* **Protección Anti-Vacío:** El proceso se aborta si el origen está vacío para evitar borrar datos en el destino.
-* **Nube (Remote):** Actualiza `gdrive:ubuntu` vía `rclone` con hasta 3 reintentos.
-* **Local (Físico):** Copia incremental vía `rsync` hacia unidad externa.
+Realiza un respaldo híbrido (nube + unidad local) con protecciones de integridad:
 
-> **REQUISITO CRÍTICO DE HARDWARE**
-> La unidad externa **DEBE** tener la etiqueta lógica (**label**) exactamente como `Respaldo`. El sistema busca el punto de montaje en `/media/$USER/Respaldo`.
+- **Exclusividad de ejecución:** usa un archivo de bloqueo (`flock`) para impedir ejecuciones concurrentes.
+- **Protección anti-vacío:** aborta el proceso si el directorio de origen (`~/Documentos`) está vacío, evitando sobrescribir el destino con nada.
+- **Respaldo en nube:** sincroniza con `gdrive:thinkpad` vía `rclone`. Los archivos eliminados localmente van a la papelera de Drive en lugar de borrarse de forma permanente.
+- **Respaldo local:** copia incremental hacia unidad externa mediante `rsync`, con verificación de espacio disponible antes de iniciar.
 
----
+Al terminar, imprime un resumen con el estado de cada destino (Exitoso / Fallido / Omitido) y el tiempo total transcurrido. El log completo se guarda en `~/.cache/sincronizar.log`.
 
-## 3. Extensión: Cómo añadir nuevos scripts
-
-La Toolbox es una infraestructura abierta. Para integrar una nueva herramienta:
-
-1.  **Creación:** Guarde su script en `~/toolbox/`. Se recomienda **omitir la extensión** (ej. `limpiar_temp` en lugar de `limpiar_temp.sh`).
-2.  **Encabezado:** Defina el intérprete (Shebang) en la primera línea: `#!/bin/bash` o `#!/usr/bin/env python3`.
-3.  **Habilitación:** Ejecute `chmod +x ~/toolbox/nombre_del_script`.
-4.  **Disponibilidad:** El comando será reconocido automáticamente en cualquier terminal nueva.
+> **Requisito de hardware**
+> La unidad externa debe tener la etiqueta lógica exactamente como `Respaldo`. El script busca el punto de montaje en `/run/media/$USER/Respaldo`. Si la unidad no está conectada, el respaldo local se omite sin interrumpir el respaldo en nube.
 
 ---
 
-## 4. Desinstalación y Reversión Total
+### `contenedores`
 
-Para eliminar la Toolbox y restaurar el sistema a su estado original:
+Gestiona entornos Linux aislados mediante **Distrobox**, con un `HOME` propio para cada contenedor en `~/Contenedores distrobox/`. Presenta un menú interactivo con las siguientes opciones:
 
-1.  **Limpieza de archivos:**
-    ```bash
-    rm -rf ~/toolbox
-    rm -f ~/.cache/sincronizar.lock ~/.cache/sincronizar.log
-    ```
-2.  **Edición de configuración:**
-    * Abra `~/.bashrc` con su editor (ej. `nano ~/.bashrc`).
-    * Elimine el bloque identificado como `# --- TOOLBOX PERSONAL ---`.
-3.  **Finalización:** Ejecute `source ~/.bashrc`.
+| Opción | Descripción |
+| :--- | :--- |
+| `1` Crear contenedor | Crea un nuevo contenedor con imagen seleccionada del catálogo, HOME aislado y nombre validado. Ofrece crear carpetas estándar (`Documentos`, `Descargas`, etc.) y entrar al entorno al terminar. |
+| `2` Listar contenedores | Muestra todos los contenedores existentes con su estado actual. |
+| `3` Entrar a un contenedor | Abre una sesión interactiva dentro del contenedor seleccionado. |
+| `4` Apagar contenedor | Detiene un contenedor en ejecución. |
+| `5` Añadir aplicación al menú | Exporta una aplicación instalada en el contenedor al menú de aplicaciones del sistema anfitrión. |
+| `6` Eliminar aplicación del menú | Retira del menú del sistema una aplicación exportada desde Distrobox. |
+| `7` Eliminar contenedor | Elimina el contenedor, su HOME y sus accesos directos. Requiere escribir el nombre exacto para confirmar. |
+| `8` Salir | Cierra el script. |
+
+**Catálogo de imágenes disponibles:**
+
+- Ubuntu LTS (última versión estable)
+- Debian Stable (última versión estable)
+- Fedora (última versión)
+- Arch Linux (Rolling Release)
+
+---
+
+## 3. Añadir nuevos scripts
+
+La Toolbox es una infraestructura abierta. Para integrar una herramienta nueva:
+
+1. Guarde el script en `~/toolbox/`. Se recomienda omitir la extensión (p. ej., `limpiar_temp` en lugar de `limpiar_temp.sh`).
+2. Defina el intérprete en la primera línea del archivo:
+   - Shell: `#!/bin/bash`
+   - Python: `#!/usr/bin/env python3`
+3. Otorgue permisos de ejecución: `chmod +x ~/toolbox/nombre_del_script`.
+4. El comando quedará disponible de forma inmediata en cualquier terminal nueva.
+
+---
+
+## 4. Desinstalación
+
+Para eliminar la Toolbox y revertir el sistema a su estado original:
+
+**1. Eliminar archivos:**
+
+```bash
+rm -rf ~/toolbox
+rm -f ~/.cache/sincronizar.lock ~/.cache/sincronizar.log
+```
+
+**2. Limpiar `~/.bashrc`:** abra el archivo (p. ej., con `nano ~/.bashrc`) y elimine el bloque `# --- TOOLBOX PERSONAL ---`.
+
+**3. Recargar la configuración:**
+
+```bash
+source ~/.bashrc
+```
