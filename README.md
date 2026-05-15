@@ -1,6 +1,11 @@
 # Toolbox
 
-Infraestructura modular de herramientas operativas integradas de forma nativa en la terminal de **Ubuntu LTS** o **Debian Stable**. Diseñada con énfasis en la automatización no intrusiva y la estabilidad del sistema; optimizada para la **Lenovo ThinkPad T14 Gen 1 (AMD Ryzen 5 PRO 4650U)**, aunque funciona en cualquier equipo compatible.
+Scripts personales para mi flujo de trabajo diario en Linux. Desarrollados sobre **Ubuntu**, aunque funcionan en cualquier sistema basado en Debian.
+
+| Comando | Descripción |
+| :--- | :--- |
+| `sincronizar` | Respalda `~/Documentos` en Google Drive y en una unidad externa. |
+| `contenedores` | Crea y gestiona entornos Linux aislados con Distrobox. |
 
 ---
 
@@ -10,17 +15,15 @@ Infraestructura modular de herramientas operativas integradas de forma nativa en
 
 Cada comando requiere únicamente sus propias dependencias. Instale solo las que correspondan a los scripts que vaya a usar:
 
-**`sincronizar`** — `rclone` y `rsync`:
+**`sincronizar`** (`rclone` y `rsync`):
 ```bash
 sudo apt update && sudo apt install rclone rsync -y
 ```
 
-**`contenedores`** — `distrobox` y `podman`:
+**`contenedores`** (`distrobox` y `podman`):
 ```bash
 sudo apt update && sudo apt install distrobox podman -y
 ```
-
-> Los comandos `flock`, `xdg-user-dir`, `mountpoint`, `du` y `df` que usa `sincronizar` son utilidades estándar presentes en cualquier instalación de Ubuntu o Debian.
 
 ### Procedimiento
 
@@ -75,7 +78,7 @@ Siga estos pasos cuando el asistente lo solicite:
 | Scope | `1` (Full access) |
 | Service account file | Enter (dejar vacío) |
 | Advanced config | `n` |
-| Auto config | `y` — se abrirá el navegador para autorizar la cuenta |
+| Auto config | `y` (se abrirá el navegador para autorizar la cuenta) |
 | Confirmaciones finales | `y`, luego `y` |
 | Salir | `q` |
 
@@ -85,17 +88,27 @@ Siga estos pasos cuando el asistente lo solicite:
 
 ### `sincronizar`
 
-Realiza un respaldo híbrido (nube + unidad local) con protecciones de integridad:
+Hace una copia de seguridad de `~/Documentos` en dos lugares al mismo tiempo: Google Drive y una unidad externa. Si alguno de los dos no está disponible (por ejemplo, el disco no está conectado), respalda en el otro sin interrumpirse.
 
-- **Exclusividad de ejecución:** usa un archivo de bloqueo (`flock`) para impedir ejecuciones concurrentes.
-- **Protección anti-vacío:** aborta el proceso si el directorio de origen (`~/Documentos`) está vacío, evitando sobrescribir el destino con nada.
-- **Respaldo en nube:** sincroniza con `gdrive:thinkpad` vía `rclone`. Los archivos eliminados localmente van a la papelera de Drive en lugar de borrarse de forma permanente.
-- **Respaldo local:** copia incremental hacia unidad externa mediante `rsync`, con verificación de espacio disponible antes de iniciar.
+Tiene algunas protecciones incorporadas: no se ejecuta dos veces en paralelo, y si detecta que la carpeta de origen está vacía, cancela la operación para no borrar accidentalmente lo que ya estaba respaldado.
 
-Al terminar, imprime un resumen con el estado de cada destino (Exitoso / Fallido / Omitido) y el tiempo total transcurrido. El log completo se guarda en `~/.cache/sincronizar.log`.
+Al terminar muestra un resumen con el resultado de cada destino y el tiempo que tardó. El registro completo queda en `~/.cache/sincronizar.log`.
 
-> **Requisito de hardware**
-> La unidad externa debe tener la etiqueta lógica exactamente como `Respaldo`. El script busca el punto de montaje en `/run/media/$USER/Respaldo`. Si la unidad no está conectada, el respaldo local se omite sin interrumpir el respaldo en nube.
+> **Nota:** en Google Drive se crea una carpeta llamada `thinkpad` que replica el contenido de `~/Documentos`. Ese nombre es arbitrario y puede cambiarse: edite la línea `rclone sync "$dir" "gdrive:thinkpad"` dentro del script y reemplace `thinkpad` por el nombre que prefiera.
+
+> **Requisito: etiqueta de la unidad externa**
+> El script localiza la unidad buscando el punto de montaje `/run/media/$USER/Respaldo`. Para que lo encuentre, la unidad debe tener asignada la etiqueta lógica `Respaldo` (exactamente con esa ortografía y mayúscula). Si la etiqueta es distinta (por ejemplo `respaldo`, `Backup` o `SSD`), el script no la detectará y omitirá el respaldo local sin avisar de error.
+>
+> Para verificar o cambiar la etiqueta de una partición ext4:
+> ```bash
+> # Ver etiqueta actual
+> lsblk -o NAME,LABEL
+>
+> # Cambiar etiqueta (reemplaza sdXN con la partición correcta)
+> sudo e2label /dev/sdXN Respaldo
+> ```
+>
+> Si la unidad no está conectada al momento de ejecutar `sincronizar`, el respaldo local se omite sin interrumpir el respaldo en nube.
 
 ---
 
@@ -105,13 +118,13 @@ Gestiona entornos Linux aislados mediante **Distrobox**, con un `HOME` propio pa
 
 | Opción | Descripción |
 | :--- | :--- |
-| `1` Crear contenedor | Crea un nuevo contenedor con imagen seleccionada del catálogo, HOME aislado y nombre validado. Ofrece crear carpetas estándar (`Documentos`, `Descargas`, etc.) y entrar al entorno al terminar. |
-| `2` Listar contenedores | Muestra todos los contenedores existentes con su estado actual. |
-| `3` Entrar a un contenedor | Abre una sesión interactiva dentro del contenedor seleccionado. |
-| `4` Apagar contenedor | Detiene un contenedor en ejecución. |
-| `5` Añadir aplicación al menú | Exporta una aplicación instalada en el contenedor al menú de aplicaciones del sistema anfitrión. |
-| `6` Eliminar aplicación del menú | Retira del menú del sistema una aplicación exportada desde Distrobox. |
-| `7` Eliminar contenedor | Elimina el contenedor, su HOME y sus accesos directos. Requiere escribir el nombre exacto para confirmar. |
+| `1` Crear contenedor | Elige una distribución del catálogo, le asigna un nombre y crea el contenedor con su propio HOME. Al terminar ofrece crear las carpetas estándar del usuario (`Documentos`, `Descargas`, etc.) y entrar directamente. |
+| `2` Listar contenedores | Muestra los contenedores existentes y su estado actual. |
+| `3` Entrar a un contenedor | Abre una sesión de terminal dentro del contenedor elegido. |
+| `4` Apagar contenedor | Detiene un contenedor que esté corriendo en segundo plano. |
+| `5` Añadir aplicación al menú | Hace visible en el menú de aplicaciones del sistema una app instalada dentro del contenedor, como si fuera nativa. |
+| `6` Eliminar aplicación del menú | Quita del menú del sistema una aplicación que fue exportada desde Distrobox. |
+| `7` Eliminar contenedor | Borra el contenedor, su HOME y sus accesos directos del menú. Pide escribir el nombre exacto antes de proceder. |
 | `8` Salir | Cierra el script. |
 
 **Catálogo de imágenes disponibles:**
@@ -125,14 +138,14 @@ Gestiona entornos Linux aislados mediante **Distrobox**, con un `HOME` propio pa
 
 ## 3. Añadir nuevos scripts
 
-La Toolbox es una infraestructura abierta. Para integrar una herramienta nueva:
+Para agregar un script nuevo, basta con colocarlo en `~/toolbox/`. Se recomienda omitir la extensión (p. ej., `limpiar_temp` en lugar de `limpiar_temp.sh`). Luego:
 
-1. Guarde el script en `~/toolbox/`. Se recomienda omitir la extensión (p. ej., `limpiar_temp` en lugar de `limpiar_temp.sh`).
-2. Defina el intérprete en la primera línea del archivo:
+1. Defina el intérprete en la primera línea:
    - Shell: `#!/bin/bash`
    - Python: `#!/usr/bin/env python3`
-3. Otorgue permisos de ejecución: `chmod +x ~/toolbox/nombre_del_script`.
-4. El comando quedará disponible de forma inmediata en cualquier terminal nueva.
+2. Otorgue permisos de ejecución: `chmod +x ~/toolbox/nombre_del_script`.
+
+El comando quedará disponible en cualquier terminal nueva.
 
 ---
 
@@ -140,16 +153,25 @@ La Toolbox es una infraestructura abierta. Para integrar una herramienta nueva:
 
 Para eliminar la Toolbox y revertir el sistema a su estado original:
 
-**1. Eliminar archivos:**
+**1. Eliminar archivos del repositorio y caché de `sincronizar`:**
 
 ```bash
 rm -rf ~/toolbox
 rm -f ~/.cache/sincronizar.lock ~/.cache/sincronizar.log
 ```
 
-**2. Limpiar `~/.bashrc`:** abra el archivo (p. ej., con `nano ~/.bashrc`) y elimine el bloque `# --- TOOLBOX PERSONAL ---`.
+**2. Limpiar datos de `contenedores` (si lo usó):**
 
-**3. Recargar la configuración:**
+Los HOME de cada contenedor quedan en `~/Contenedores distrobox/` y las imágenes descargadas se almacenan en Podman. Para eliminarlos:
+
+```bash
+rm -rf ~/Contenedores\ distrobox/
+podman system prune --all --force
+```
+
+**3. Limpiar `~/.bashrc`:** abra el archivo (p. ej., con `nano ~/.bashrc`) y elimine el bloque `# --- TOOLBOX PERSONAL ---`.
+
+**4. Recargar la configuración:**
 
 ```bash
 source ~/.bashrc
