@@ -1,34 +1,80 @@
 #!/bin/bash
 # Nombre: sincronizar
-# Perfil: Seguridad Industrial Máxima
 
 set -eo pipefail
 
-# ──────────────────────────────────────────────────────────────────
-# 0. CONFIGURACIÓN
-# ──────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# CONFIGURACIÓN — MODIFICA ESTA SECCIÓN ANTES DE USAR EL SCRIPT
+# ══════════════════════════════════════════════════════════════════
+#
+# DIR_LOCAL
+#   Carpeta de tu computadora que se respaldará.
+#   Por defecto apunta a tu carpeta Documentos.
+#
+#   Ejemplo: DIR_LOCAL="$HOME/Trabajo"
+#
+DIR_LOCAL=$(xdg-user-dir DOCUMENTS 2>/dev/null || echo "$HOME/Documentos")
+DIR_LOCAL="${DIR_LOCAL%/}/"
+DIR_LOCAL_LABEL="/$(basename "${DIR_LOCAL%/}")"
+
+#
+# DRIVE_FOLDER
+#   Nombre de la carpeta en Google Drive donde se guardarán
+#   tus archivos. Si no existe, rclone la creará automáticamente.
+#
+#   Ejemplo: DRIVE_FOLDER="respaldo-trabajo"
+#
+DRIVE_FOLDER="thinkpad"
+
+#
+# SSD_PATH
+#   Punto de montaje del SSD externo.
+#   Formato habitual: /run/media/$USER/nombre-del-volumen
+#   El nombre del volumen aparece en el administrador de archivos
+#   cuando conectas el SSD.
+#
+#   Ejemplo: SSD_PATH="/run/media/$USER/MiDisco"
+#
+SSD_PATH="/run/media/$USER/Respaldo"
+
+# ══════════════════════════════════════════════════════════════════
+# FIN DE LA CONFIGURACIÓN
+# ══════════════════════════════════════════════════════════════════
+
+DRIVE_REMOTE="gdrive:$DRIVE_FOLDER"
+DRIVE_REMOTE_HOST="gdrive:"
+
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}"
 LOCKFILE="$CACHE_DIR/sincronizar.lock"
 LOG_FILE="$CACHE_DIR/sincronizar.log"
+LAST_RUN_FILE="$CACHE_DIR/sincronizar.lastrun"
 LOG_MAX_LINES=2000
 MARGIN=5
 RETRIES=3
 SLEEP_RETRY=5
+MIN_INTERVAL=300
 
+SSD_OK=0
+SSD_FAIL=1
+SSD_SKIP=2
+
+TMP_FILES=()
 mkdir -p "$CACHE_DIR"
 
 # ──────────────────────────────────────────────────────────────────
-# 1. DEPENDENCIAS
+# DEPENDENCIAS
 # ──────────────────────────────────────────────────────────────────
 for cmd in rclone rsync flock xdg-user-dir mountpoint du df; do
     command -v "$cmd" &>/dev/null || {
-        echo "Error: dependencia faltante: $cmd"
+        echo ""
+        echo "  Este programa necesita '$cmd' para funcionar."
+        echo "  Por favor instálalo antes de continuar."
         exit 1
     }
 done
 
 # ──────────────────────────────────────────────────────────────────
-# 2. ROTACIÓN DE LOG
+# ROTACIÓN DE LOG
 # ──────────────────────────────────────────────────────────────────
 if [[ -f "$LOG_FILE" ]]; then
     tail -n "$LOG_MAX_LINES" "$LOG_FILE" > "${LOG_FILE}.tmp" \
@@ -36,245 +82,420 @@ if [[ -f "$LOG_FILE" ]]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────
-# 3. FUNCIONES DE EJECUCIÓN
+# FUNCIONES DE UTILIDAD
 # ──────────────────────────────────────────────────────────────────
 
+# Indicador de actividad compatible con cualquier terminal
 spinner() {
     local pid=$1
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local chars='-\|/'
     local i=0
     while kill -0 "$pid" 2>/dev/null; do
-        printf '  Sincronizando... %s\r' "${spinstr:$i:1}"
-        i=$(( (i + 1) % ${#spinstr} ))
+        printf '  %s\r' "${chars:$i:1}"
+        i=$(( (i + 1) % 4 ))
         sleep 0.15
     done
-    printf '%-72s\r' ""
+    printf '    \r'
 }
 
-run_rclone() {
+log_plain() { echo "$1" >> "$LOG_FILE"; }
+
+mktemp_tracked() {
+    local f; f=$(mktemp)
+    TMP_FILES+=("$f")
+    echo "$f"
+}
+
+rm_tracked() {
+    local target=$1 new_files=()
+    rm -f "$target"
+    for f in "${TMP_FILES[@]}"; do
+        [[ "$f" != "$target" ]] && new_files+=("$f")
+    done
+    TMP_FILES=("${new_files[@]}")
+}
+
+escribir_lastrun() {
+    local tmp; tmp=$(mktemp)
+    date +%s > "$tmp"
+    mv "$tmp" "$LAST_RUN_FILE"
+}
+
+verificar_intervalo() {
+    if [[ -f "$LAST_RUN_FILE" ]]; then
+        local last_run now elapsed
+        last_run=$(cat "$LAST_RUN_FILE" 2>/dev/null)
+        [[ "$last_run" =~ ^[0-9]+$ ]] || { escribir_lastrun; return 0; }
+        now=$(date +%s)
+        elapsed=$(( now - last_run ))
+        if (( elapsed < MIN_INTERVAL )); then
+            local restante=$(( MIN_INTERVAL - elapsed ))
+            echo ""
+            echo "  La operación anterior se realizó hace menos de 5 minutos."
+            echo "  Esperar un poco ayuda a evitar errores con Google Drive."
+            echo "  Tiempo sugerido de espera: ${restante}s"
+            echo ""
+            read -rp "  ¿Deseas continuar de todas formas? (s/n): " resp
+            [[ "$resp" == "s" || "$resp" == "S" ]] || return 1
+        fi
+    fi
+    escribir_lastrun
+}
+
+verificar_remote() {
+    echo "  Comprobando la conexión con Google Drive..."
     local tmp exit_code=0
-    tmp=$(mktemp)
+    tmp=$(mktemp_tracked)
+    rclone listremotes > "$tmp" 2>&1 &
+    local pid=$!
+    spinner "$pid"
+    wait "$pid" || exit_code=$?
+    if ! grep -q "^${DRIVE_REMOTE_HOST}" "$tmp"; then
+        rm_tracked "$tmp"
+        echo ""
+        echo "  No se pudo conectar con Google Drive."
+        echo "  Comprueba tu conexión a internet y vuelve a intentarlo."
+        echo "  Si el problema continúa, es posible que rclone"
+        echo "  no esté configurado correctamente."
+        log_plain "[$(date +"%F %T")] Error: remote '${DRIVE_REMOTE_HOST}' no encontrado."
+        return 1
+    fi
+    rm_tracked "$tmp"
+}
+
+verificar_origen() {
+    if [[ ! -d "$DIR_LOCAL" ]]; then
+        echo ""
+        echo "  No se encontró la carpeta $DIR_LOCAL_LABEL."
+        exit 1
+    fi
+    if [[ -z "$(find "$DIR_LOCAL" -mindepth 1 -print -quit)" ]]; then
+        echo ""
+        echo "  La carpeta $DIR_LOCAL_LABEL está vacía."
+        echo "  Se canceló la operación para no borrar los archivos"
+        echo "  que ya están en Google Drive."
+        exit 1
+    fi
+}
+
+RCLONE_EXIT=0
+ejecutar_rclone() {
+    local origen=$1 destino=$2
+    RCLONE_EXIT=0
+    local tmp; tmp=$(mktemp_tracked)
 
     if [[ -t 1 ]]; then
-        rclone sync "$dir" "gdrive:thinkpad" \
-            --drive-use-trash \
-            --fast-list \
+        rclone sync "$origen" "$destino" \
+            --drive-use-trash --fast-list \
             --exclude ".git/**" \
-            --stats-one-line \
-            --stats 2s \
+            --stats-one-line --stats 2s \
             > "$tmp" 2>&1 &
         local pid=$!
         spinner "$pid"
-        wait "$pid" || exit_code=$?
-
-        local summary
+        wait "$pid" || RCLONE_EXIT=$?
+        local summary=""
         summary=$(tr '\r' '\n' < "$tmp" \
             | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
-            | grep -i "Transferred:" \
-            | tail -1)
+            | grep -i "Transferred:" | tail -1) || true
         [[ -n "$summary" ]] && echo "  $summary"
-
         tr '\r' '\n' < "$tmp" \
             | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
-            | grep -v '^$' >> "$LOG_FILE"
-
-        rm -f "$tmp"
+            | grep -v '^$' >> "$LOG_FILE" || true
     else
-        rclone sync "$dir" "gdrive:thinkpad" \
-            --drive-use-trash \
-            --fast-list \
-            --exclude ".git/**" \
-            --quiet \
-            >> "$LOG_FILE" 2>&1 || exit_code=$?
+        rclone sync "$origen" "$destino" \
+            --drive-use-trash --fast-list \
+            --exclude ".git/**" --quiet \
+            >> "$LOG_FILE" 2>&1 || RCLONE_EXIT=$?
     fi
-
-    return "$exit_code"
-}
-
-run_rsync() {
-    local tmp exit_code=0
-    tmp=$(mktemp)
-
-    if [[ -t 1 ]]; then
-        rsync -a --delete --exclude ".git/" \
-            --info=progress2 --stats "$dir" "$ssd/" \
-            > "$tmp" 2>&1 &
-        local pid=$!
-        spinner "$pid"
-        wait "$pid" || exit_code=$?
-
-        local summary
-        summary=$(tr '\r' '\n' < "$tmp" \
-            | grep "%" \
-            | tail -1 \
-            | tr -d '\r')
-        [[ -n "$summary" ]] && echo "  $summary"
-
-        tr '\r' '\n' < "$tmp" \
-            | grep -v '^$' >> "$LOG_FILE"
-
-        rm -f "$tmp"
-    else
-        rsync -a --delete --exclude ".git/" \
-            --stats "$dir" "$ssd/" \
-            >> "$LOG_FILE" 2>&1 || exit_code=$?
-    fi
-
-    return "$exit_code"
+    rm_tracked "$tmp"
 }
 
 # ──────────────────────────────────────────────────────────────────
-# 4. EXCLUSIVIDAD (LOCKFILE)
+# EXCLUSIVIDAD
 # ──────────────────────────────────────────────────────────────────
 exec 9>"$LOCKFILE"
 if ! flock -n 9; then
-    echo "Aviso: ya existe una sincronización en curso."
-    echo "Para seguir su progreso, consulte el archivo de registro en:"
-    echo "  $LOG_FILE"
-    exit 0
-fi
-
-trap 'echo "[$(date +"%F %T")] Proceso interrumpido abruptamente." >> "$LOG_FILE"; rm -f "$LOCKFILE"' EXIT INT TERM
-
-# ──────────────────────────────────────────────────────────────────
-# 5. DIRECTORIOS Y VALIDACIÓN DEL ORIGEN
-# ──────────────────────────────────────────────────────────────────
-dir=$(xdg-user-dir DOCUMENTS 2>/dev/null || echo "$HOME/Documentos")
-dir="${dir%/}/"
-ssd="/run/media/$USER/Respaldo"
-
-if [[ ! -d "$dir" ]]; then
-    echo "Error: el directorio de origen no existe ($dir)."
-    exit 1
-fi
-
-if [[ -z "$(find "$dir" -mindepth 1 -print -quit)" ]]; then
-    echo "Error: el directorio de origen está vacío ($dir)."
-    echo "Se ha cancelado la operación para proteger el respaldo existente."
-    exit 1
-fi
-
-# ──────────────────────────────────────────────────────────────────
-# 6. INICIO
-# ──────────────────────────────────────────────────────────────────
-START_TIME=$(date +%s)
-
-echo "Respaldo iniciado: $(date +'%Y-%m-%d %H:%M:%S')"
-echo ""
-{
-    echo "────────────────────────────────────────"
-    echo "Inicio: $(date +'%Y-%m-%d %H:%M:%S')"
-    echo "Origen: $dir"
-    echo "────────────────────────────────────────"
-} >> "$LOG_FILE"
-
-# ──────────────────────────────────────────────────────────────────
-# 7. NUBE (rclone)
-# ──────────────────────────────────────────────────────────────────
-echo "[1] Google Drive"
-CLOUD_STATUS=1
-
-if ! rclone listremotes 2>/dev/null | grep -q "^gdrive:"; then
-    echo "  Error: el remote 'gdrive:' no está configurado en rclone."
-    echo "[$(date +"%F %T")] Error: remote 'gdrive:' no encontrado." >> "$LOG_FILE"
-else
-    if run_rclone; then
-        CLOUD_STATUS=0
-    fi
-fi
-
-if [[ $CLOUD_STATUS -eq 0 ]]; then
-    echo "  Completado."
-else
-    echo "  Sin éxito."
-fi
-
-echo ""
-
-# ──────────────────────────────────────────────────────────────────
-# 8. SSD (rsync)
-# ──────────────────────────────────────────────────────────────────
-echo "[2] SSD Externo"
-SSD_STATUS=2
-
-if mountpoint -q "$ssd"; then
-    ORIGIN_SIZE=$(timeout 30 du -sk --exclude=".git" "$dir" 2>/dev/null | awk '{print $1}') || ORIGIN_SIZE=0
-    FREE_SPACE=$(df -k "$ssd" | awk 'NR==2 {print $4}')
-    SAFE_SIZE=$(( ORIGIN_SIZE + ORIGIN_SIZE * MARGIN / 100 ))
-
-    if (( FREE_SPACE < SAFE_SIZE )); then
-        echo "  Error: espacio insuficiente en el SSD."
-        echo "  Requerido: $((SAFE_SIZE/1024)) MB — Disponible: $((FREE_SPACE/1024)) MB"
-        echo "[$(date +"%F %T")] Error: espacio insuficiente. Requerido: $((SAFE_SIZE/1024)) MB, Disponible: $((FREE_SPACE/1024)) MB." >> "$LOG_FILE"
-        SSD_STATUS=1
+    lockfile_pid=$(cat "$LOCKFILE" 2>/dev/null)
+    if [[ -n "$lockfile_pid" ]] && kill -0 "$lockfile_pid" 2>/dev/null; then
+        echo ""
+        echo "  Ya hay una sincronización en curso."
+        echo "  Espera a que termine antes de iniciar otra."
+        echo ""
+        echo "  Puedes ver el progreso en el registro:"
+        echo "  $LOG_FILE"
+        exit 0
     else
-        SSD_STATUS=1
-        for (( i=1; i<=RETRIES; i++ )); do
-            (( i > 1 )) && echo "  Reintentando ($i/$RETRIES)..."
-            if run_rsync; then
-                SSD_STATUS=0
-                break
-            else
-                (( i < RETRIES )) && sleep $SLEEP_RETRY
-            fi
-        done
+        flock -n 9 || true
     fi
-
-    if [[ $SSD_STATUS -eq 0 ]]; then
-        echo "  Completado."
-    elif [[ $SSD_STATUS -eq 1 ]]; then
-        echo "  Sin éxito."
-    fi
-else
-    echo "  Omitido: SSD no detectado."
 fi
+echo $$ > "$LOCKFILE"
 
+trap '
+    EC=$?
+    (( EC != 0 )) && log_plain "[$(date +"%F %T")] El proceso terminó de forma inesperada (código: $EC)."
+    rm -f "${TMP_FILES[@]}" "$LOCKFILE"
+' EXIT INT TERM
+
+# ──────────────────────────────────────────────────────────────────
+# MENÚ PRINCIPAL
+# ──────────────────────────────────────────────────────────────────
+clear
+echo "  Sincronizar archivos"
 echo ""
+echo "  1. Guardar mis archivos"
+echo "     (de $DIR_LOCAL_LABEL a Google Drive y al SSD)"
+echo ""
+echo "  2. Recuperar mis archivos"
+echo "     (de Google Drive a $DIR_LOCAL_LABEL)"
+echo ""
+echo "  0. Salir"
+echo ""
+read -rp "  > " opcion
 
 # ──────────────────────────────────────────────────────────────────
-# 9. RESUMEN
+# OPCIÓN 1 — Guardar (local → Google Drive + SSD)
 # ──────────────────────────────────────────────────────────────────
-END_TIME=$(date +%s)
-DURATION=$(( END_TIME - START_TIME ))
-(( DURATION >= 60 )) \
-    && DURATION_STR="$(( DURATION/60 ))m $(( DURATION%60 ))s" \
-    || DURATION_STR="${DURATION}s"
+opcion_1() {
+    echo ""
+    echo "  Esta opción copia todo el contenido de $DIR_LOCAL_LABEL"
+    echo "  a la carpeta \"$DRIVE_FOLDER\" en Google Drive."
+    echo "  Los archivos que hayas borrado de $DIR_LOCAL_LABEL se"
+    echo "  moverán a la papelera de Google Drive (podrás recuperarlos)."
+    echo ""
 
-echo "[3] Resumen ($DURATION_STR)"
+    verificar_origen
+    verificar_remote || return 1
+    verificar_intervalo || return 1
 
-[[ $CLOUD_STATUS -eq 0 ]] \
-    && echo "  Nube : Exitoso" \
-    || echo "  Nube : Fallido"
+    echo ""
+    read -rp "  ¿Deseas continuar? (s/n): " resp
+    [[ "$resp" == "s" || "$resp" == "S" ]] || {
+        echo ""
+        echo "  Operación cancelada."
+        echo ""
+        return 0
+    }
+    echo ""
 
-case $SSD_STATUS in
-    0) echo "  SSD  : Exitoso" ;;
-    1) echo "  SSD  : Fallido" ;;
-    2) echo "  SSD  : Omitido" ;;
+    local START_TIME; START_TIME=$(date +%s)
+    log_plain ""
+    log_plain "Inicio (Opción 1): $(date +'%Y-%m-%d %H:%M:%S')"
+
+    echo "  [1/2] Copiando $DIR_LOCAL_LABEL a Google Drive..."
+    ejecutar_rclone "$DIR_LOCAL" "$DRIVE_REMOTE"
+    local CLOUD_STATUS=$RCLONE_EXIT
+    [[ $CLOUD_STATUS -eq 0 ]] \
+        && echo "  Listo." \
+        || echo "  No se pudo copiar a Google Drive."
+
+    local SSD_STATUS=$SSD_SKIP
+    echo ""
+
+    if mountpoint -q "$SSD_PATH"; then
+        echo "  [2/2] Copiando $DIR_LOCAL_LABEL al SSD..."
+
+        # Verificar espacio disponible
+        echo "  Calculando el espacio necesario en el SSD..."
+        local du_tmp du_result=""
+        du_tmp=$(mktemp_tracked)
+        timeout 30 du -sk --exclude=".git" "$DIR_LOCAL" > "$du_tmp" 2>/dev/null &
+        local du_pid=$!; spinner "$du_pid"; wait "$du_pid" || true
+        du_result=$(awk '{print $1}' "$du_tmp" 2>/dev/null) || true
+        rm_tracked "$du_tmp"
+
+        if [[ -z "$du_result" ]] || ! [[ "$du_result" =~ ^[0-9]+$ ]]; then
+            echo "  No fue posible calcular el espacio necesario."
+            echo "  La copia al SSD fue cancelada."
+            log_plain "[$(date +"%F %T")] Error: no se pudo calcular el tamaño de $DIR_LOCAL."
+            SSD_STATUS=$SSD_FAIL
+        else
+            local FREE_SPACE SAFE_SIZE
+            FREE_SPACE=$(df -k "$SSD_PATH" | awk 'NR==2 {print $4}')
+            SAFE_SIZE=$(( du_result + du_result * MARGIN / 100 ))
+
+            if (( FREE_SPACE < SAFE_SIZE )); then
+                echo "  El SSD no tiene espacio suficiente para esta copia."
+                echo "  Espacio necesario:   $((SAFE_SIZE / 1024)) MB"
+                echo "  Espacio disponible:  $((FREE_SPACE / 1024)) MB"
+                echo "  Libera espacio en el SSD y vuelve a intentarlo."
+                log_plain "[$(date +"%F %T")] Error: espacio insuficiente en SSD."
+                SSD_STATUS=$SSD_FAIL
+            else
+                # Verificar si habrá eliminaciones en el SSD
+                echo "  Revisando qué archivos cambiarán en el SSD..."
+                local del_tmp eliminaciones=0
+                del_tmp=$(mktemp_tracked)
+                rsync -an --delete --exclude ".git/" "$DIR_LOCAL" "$SSD_PATH/" \
+                    > "$del_tmp" 2>/dev/null &
+                local del_pid=$!; spinner "$del_pid"; wait "$del_pid" || true
+                eliminaciones=$(grep "^deleting " "$del_tmp" | wc -l) || true
+                rm_tracked "$del_tmp"
+
+                if (( eliminaciones > 0 )); then
+                    echo ""
+                    echo "  Hay $eliminaciones archivo(s) en el SSD que ya borraste"
+                    echo "  de $DIR_LOCAL_LABEL. También se borrarán del SSD."
+                    echo "  A diferencia de Google Drive, esta eliminación es permanente."
+                    echo ""
+                    read -rp "  ¿Deseas continuar? (s/n): " resp
+                    [[ "$resp" == "s" || "$resp" == "S" ]] || {
+                        echo "  Copia al SSD cancelada. El SSD no fue modificado."
+                        SSD_STATUS=$SSD_SKIP
+                    }
+                fi
+
+                if [[ $SSD_STATUS -ne $SSD_SKIP ]]; then
+                    SSD_STATUS=$SSD_FAIL
+                    for (( i=1; i<=RETRIES; i++ )); do
+                        (( i > 1 )) && echo "  Reintentando ($i de $RETRIES)..."
+                        local ssd_tmp ssd_exit=0
+                        ssd_tmp=$(mktemp_tracked)
+                        if [[ -t 1 ]]; then
+                            rsync -a --delete --exclude ".git/" \
+                                --info=progress2 --stats "$DIR_LOCAL" "$SSD_PATH/" \
+                                > "$ssd_tmp" 2>&1 &
+                            local spid=$!; spinner "$spid"; wait "$spid" || ssd_exit=$?
+                            local ssd_sum=""
+                            ssd_sum=$(tr '\r' '\n' < "$ssd_tmp" \
+                                | grep "%" | tail -1 | tr -d '\r') || true
+                            [[ -n "$ssd_sum" ]] && echo "  $ssd_sum"
+                            tr '\r' '\n' < "$ssd_tmp" \
+                                | grep -v '^$' >> "$LOG_FILE" || true
+                        else
+                            rsync -a --delete --exclude ".git/" --stats \
+                                "$DIR_LOCAL" "$SSD_PATH/" \
+                                >> "$LOG_FILE" 2>&1 || ssd_exit=$?
+                        fi
+                        rm_tracked "$ssd_tmp"
+                        if [[ $ssd_exit -eq 0 ]]; then
+                            SSD_STATUS=$SSD_OK; break
+                        else
+                            (( i < RETRIES )) && sleep $SLEEP_RETRY
+                        fi
+                    done
+                    [[ $SSD_STATUS -eq $SSD_OK ]] \
+                        && echo "  Listo." \
+                        || echo "  No se pudo copiar al SSD."
+                fi
+            fi
+        fi
+    else
+        echo "  [2/2] El SSD no está conectado. Se omite este paso."
+    fi
+
+    resumen "$CLOUD_STATUS" "$SSD_STATUS" "$START_TIME"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# OPCIÓN 2 — Recuperar (Google Drive → local)
+# ──────────────────────────────────────────────────────────────────
+opcion_2() {
+    echo ""
+    echo "  Esta opción copia el contenido de la carpeta \"$DRIVE_FOLDER\""
+    echo "  en Google Drive hacia $DIR_LOCAL_LABEL en tu computadora."
+    echo ""
+    echo "  Cualquier archivo que esté en $DIR_LOCAL_LABEL pero no en"
+    echo "  Google Drive será eliminado de tu computadora de forma"
+    echo "  permanente y no podrá recuperarse."
+    echo ""
+    echo "  Si no estás seguro de que Google Drive tenga todo,"
+    echo "  cancela y usa primero la opción 1 para respaldarlo."
+    echo ""
+
+    verificar_remote || return 1
+    verificar_intervalo || return 1
+
+    echo ""
+    read -rp "  ¿Deseas continuar? (s/n): " resp
+    [[ "$resp" == "s" || "$resp" == "S" ]] || {
+        echo ""
+        echo "  Operación cancelada. $DIR_LOCAL_LABEL no fue modificada."
+        echo ""
+        return 0
+    }
+    echo ""
+
+    local START_TIME; START_TIME=$(date +%s)
+    log_plain ""
+    log_plain "Inicio (Opción 2): $(date +'%Y-%m-%d %H:%M:%S')"
+
+    echo "  Copiando de Google Drive a $DIR_LOCAL_LABEL..."
+    ejecutar_rclone "$DRIVE_REMOTE" "$DIR_LOCAL"
+    local CLOUD_STATUS=$RCLONE_EXIT
+    [[ $CLOUD_STATUS -eq 0 ]] \
+        && echo "  Listo." \
+        || echo "  No se pudo completar la copia desde Google Drive."
+
+    resumen "$CLOUD_STATUS" "$SSD_SKIP" "$START_TIME"
+}
+
+# ──────────────────────────────────────────────────────────────────
+# RESUMEN FINAL
+# ──────────────────────────────────────────────────────────────────
+resumen() {
+    local CLOUD_STATUS=$1 SSD_STATUS=$2 START_TIME=$3
+    local END_TIME DURATION DURATION_STR
+    END_TIME=$(date +%s)
+    DURATION=$(( END_TIME - START_TIME ))
+    (( DURATION >= 60 )) \
+        && DURATION_STR="$(( DURATION / 60 ))m $(( DURATION % 60 ))s" \
+        || DURATION_STR="${DURATION}s"
+
+    echo ""
+    echo "  Resultado  ($DURATION_STR)"
+    echo ""
+
+    [[ $CLOUD_STATUS -eq 0 ]] \
+        && echo "  Google Drive   Correcto" \
+        || echo "  Google Drive   Error"
+
+    case $SSD_STATUS in
+        $SSD_OK)   echo "  SSD            Correcto" ;;
+        $SSD_FAIL) echo "  SSD            Error"    ;;
+        $SSD_SKIP) echo "  SSD            No usado"  ;;
+    esac
+
+    echo ""
+
+    if [[ $CLOUD_STATUS -eq 0 ]] && [[ $SSD_STATUS -ne $SSD_FAIL ]]; then
+        echo "  Todo salió correctamente."
+    else
+        echo "  Algo no salió bien. Si el problema continúa,"
+        echo "  revisa el registro de errores en:"
+        echo "  $LOG_FILE"
+    fi
+
+    echo ""
+
+    log_plain "Fin: $(date +'%Y-%m-%d %H:%M:%S') ($DURATION_STR)"
+    [[ $CLOUD_STATUS -eq 0 ]] \
+        && log_plain "Google Drive: OK" \
+        || log_plain "Google Drive: Error"
+    case $SSD_STATUS in
+        $SSD_OK)   log_plain "SSD: OK"      ;;
+        $SSD_FAIL) log_plain "SSD: Error"   ;;
+        $SSD_SKIP) log_plain "SSD: Omitido" ;;
+    esac
+}
+
+# ──────────────────────────────────────────────────────────────────
+# EJECUCIÓN
+# ──────────────────────────────────────────────────────────────────
+case $opcion in
+    1) opcion_1 ;;
+    2) opcion_2 ;;
+    0)
+        echo ""
+        echo "  Hasta luego."
+        echo ""
+        ;;
+    *)
+        echo ""
+        echo "  Opción no válida. Por favor elige 1, 2 o 0."
+        echo ""
+        ;;
 esac
 
-{
-    echo "────────────────────────────────────────"
-    echo "Fin: $(date +'%Y-%m-%d %H:%M:%S') ($DURATION_STR)"
-    [[ $CLOUD_STATUS -eq 0 ]] && echo "Nube: OK" || echo "Nube: Fallida"
-    case $SSD_STATUS in
-        0) echo "SSD: OK" ;;
-        1) echo "SSD: Fallido" ;;
-        2) echo "SSD: Omitido" ;;
-    esac
-    echo "────────────────────────────────────────"
-} >> "$LOG_FILE"
-
-# ──────────────────────────────────────────────────────────────────
-# 10. EXIT CODE
-# ──────────────────────────────────────────────────────────────────
 trap - EXIT INT TERM
-rm -f "$LOCKFILE"
-
-if [[ $CLOUD_STATUS -ne 0 ]] || [[ $SSD_STATUS -eq 1 ]]; then
-    echo ""
-    echo "Consulte el archivo de registro para obtener más detalles del error en:"
-    echo "  $LOG_FILE"
-    exit 1
-fi
-
+rm -f "${TMP_FILES[@]}" "$LOCKFILE"
 exit 0
