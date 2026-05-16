@@ -257,9 +257,9 @@ read -rp "  > " opcion
 # ──────────────────────────────────────────────────────────────────
 opcion_1() {
     echo ""
-    echo "  Esta opción copia todo el contenido de $DIR_LOCAL_LABEL"
+    echo "  Esta opción replica todo el contenido de $DIR_LOCAL_LABEL"
     echo "  a la carpeta \"$DRIVE_FOLDER\" en Google Drive."
-    echo "  Los archivos que hayas borrado de $DIR_LOCAL_LABEL se"
+    echo "  Los archivos en \"$DRIVE_FOLDER\" que no correspondan a la replica se"
     echo "  moverán a la papelera de Google Drive (podrás recuperarlos)."
     echo ""
 
