@@ -256,11 +256,13 @@ read -rp "  > " opcion
 # OPCIÓN 1 — Guardar (local → Google Drive + SSD)
 # ──────────────────────────────────────────────────────────────────
 opcion_1() {
+
     echo ""
     echo "  Esta opción replica todo el contenido de $DIR_LOCAL_LABEL"
-    echo "  a la carpeta \"$DRIVE_FOLDER\" en Google Drive."
-    echo "  Los archivos en \"$DRIVE_FOLDER\" que no correspondan a la replica se"
-    echo "  moverán a la papelera de Google Drive (podrás recuperarlos)."
+    echo "  hacia la carpeta \"$DRIVE_FOLDER\" en Google Drive."
+    echo ""
+    echo "  Cualquier archivo que esté en \"$DRIVE_FOLDER\" pero no en"
+    echo "  $DIR_LOCAL_LABEL será movido a la papelera de Google Drive."
     echo ""
 
     verificar_origen
@@ -391,15 +393,12 @@ opcion_1() {
 # ──────────────────────────────────────────────────────────────────
 opcion_2() {
     echo ""
-    echo "  Esta opción copia el contenido de la carpeta \"$DRIVE_FOLDER\""
+    echo "  Esta opción replica todo el contenido de la carpeta \"$DRIVE_FOLDER\""
     echo "  en Google Drive hacia $DIR_LOCAL_LABEL en tu computadora."
     echo ""
     echo "  Cualquier archivo que esté en $DIR_LOCAL_LABEL pero no en"
     echo "  Google Drive será eliminado de tu computadora de forma"
     echo "  permanente y no podrá recuperarse."
-    echo ""
-    echo "  Si no estás seguro de que Google Drive tenga todo,"
-    echo "  cancela y usa primero la opción 1 para respaldarlo."
     echo ""
 
     verificar_remote || return 1
